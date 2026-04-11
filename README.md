@@ -5,16 +5,16 @@ A 6-layer AI-powered natural language to SQL/data pipeline system powered by **G
 ## Architecture Overview
 
 ```
-┌─────────────────────────────────────────────────────────────┐
+┌──────────────────────────────────────────────────────────────┐
 │                    System Architecture                       │
-├─────────────────────────────────────────────────────────────┤
+├──────────────────────────────────────────────────────────────┤
 │  Layer 1: Semantic Cache     → Skip LLMs on repeated queries │
 │  Layer 2: Intent Router      → Classify: SQL vs RAG vs Both  │
-│  Layer 3: TAG / Metadata     → Dynamic schema retrieval       │
+│  Layer 3: TAG / Metadata     → Dynamic schema retrieval      │
 │  Layer 4: Multi-Agent SQL    → Planner → Coder → Validator   │
-│  Layer 5: Secure Execution   → Read-only database sandbox     │
+│  Layer 5: Secure Execution   → Read-only database sandbox    │
 │  Layer 6: Storyteller        → Natural language + audit trail│
-└─────────────────────────────────────────────────────────────┘
+└──────────────────────────────────────────────────────────────┘
 ```
 
 ## Features
@@ -91,7 +91,7 @@ streamlit run app.py
 ## Project Structure
 
 ```
-ai-query-system/
+Talk-to-Data/
 ├── layers/                      # 6 layer implementations
 │   ├── layer1_semantic_cache.py
 │   ├── layer2_intent_router.py
@@ -188,7 +188,3 @@ print(response.lineage.to_json()) # Full audit trail
 ```bash
 pytest tests/ -v
 ```
-
-## License
-
-MIT
