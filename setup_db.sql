@@ -11,7 +11,7 @@ END $$;
 ALTER ROLE ai_readonly WITH PASSWORD '1234';
 
 -- Grant connect on database
-GRANT CONNECT ON DATABASE yourdatabase TO ai_readonly;
+GRANT CONNECT ON DATABASE postgres TO ai_readonly;
 
 -- Grant select on all tables (run for each schema)
 GRANT SELECT ON ALL TABLES IN SCHEMA public TO ai_readonly;

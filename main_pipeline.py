@@ -204,12 +204,29 @@ class AIQuerySystem:
         except Exception as e:
             self.logger.warning(f"Could not load sample data: {e}")
 
-    def run_pipeline(self, user_query: str) -> QueryResponse:
+    def run_pipeline(self, user_query: str, context_filter: Optional[Dict[str, Any]] = None) -> QueryResponse:
         start_time = time.time()
 
+        # ====================================================================================
+        # OLD CACHE BLEED LOGIC (PRESERVED PER REQUEST):
+        # if self.cache:
+        #     try:
+        #         cached = self.cache.get(user_query)
+        #         if cached:
+        #             cached_results = cached.get("metadata", {}).get("results")
+        #             if cached_results:
+        #                 self.logger.info(f"[CACHE HIT] similarity={cached.get('similarity', 0):.3f}")
+        #                 ...
+        # ====================================================================================
+        
         if self.cache:
             try:
-                cached = self.cache.get(user_query)
+                # NEW FIX: Isolate Session by encoding context into the cache hash key!
+                cache_key = user_query
+                if context_filter:
+                    cache_key = f"{user_query}__CTX__{str(context_filter)}"
+                    
+                cached = self.cache.get(cache_key)
                 if cached:
                     cached_results = cached.get("metadata", {}).get("results")
                     if cached_results:  # only use cache if it has real data
@@ -241,7 +258,7 @@ class AIQuerySystem:
             schema_context = "\n\n".join([s.to_document() for s in schemas])
             self.logger.info(f"[TAG] Retrieved schemas: {[s.table_name for s in schemas]}")
         if route in ["rag", "both"]:
-            docs = self.tag.retrieve_documents(user_query, top_k=5)
+            docs = self.tag.retrieve_documents(user_query, top_k=5, where_filter=context_filter)
             self.logger.info(f"[TAG] Retrieved {len(docs)} documents")
 
         # Steps 4 & 5: Generate SQL and execute
@@ -296,15 +313,29 @@ class AIQuerySystem:
         )
 
         # FIX: Only cache when we have actual results
-        if self.cache and sql_results:
+        # ====================================================================================
+        # OLD CACHE SAVE LOGIC (PRESERVED):
+        # if self.cache and sql_results:
+        #     try:
+        #         self.cache.set(user_query, answer, metadata={"route": route, "results": sql_results})
+        #         self.logger.info(f"[CACHE] Stored answer with {len(sql_results)} rows")
+        #     except Exception as e:
+        #         self.logger.warning(f"Cache write failed: {e}")
+        # ====================================================================================
+
+        # NEW FIX: Save against isolated Cache Key and support RAG docs caching
+        if self.cache and (sql_results or docs):
             try:
-                self.cache.set(user_query, answer, metadata={"route": route, "results": sql_results})
-                self.logger.info(f"[CACHE] Stored answer with {len(sql_results)} rows")
+                cache_key = user_query
+                if context_filter:
+                    cache_key = f"{user_query}__CTX__{str(context_filter)}"
+                self.cache.set(cache_key, answer, metadata={"route": route, "results": sql_results})
+                self.logger.info(f"[CACHE] Stored locally isolated cache entry.")
             except Exception as e:
                 self.logger.warning(f"Cache write failed: {e}")
 
         self.storyteller.log_lineage(lineage)
-        return QueryResponse(answer=answer, lineage=lineage, raw_results=sql_results)
+        return QueryResponse(answer=answer, lineage=lineage, raw_results=sql_results, raw_docs=docs)
 
     def clear_cache(self) -> int:
         """Clear all cache entries. Useful after fixing bugs."""

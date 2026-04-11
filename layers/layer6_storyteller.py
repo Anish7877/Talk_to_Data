@@ -296,13 +296,15 @@ class QueryResponse:
     answer: str
     lineage: LineageTrace
     raw_results: Optional[List[Dict[str, Any]]] = None
+    raw_docs: Optional[List[Dict[str, Any]]] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary."""
         return {
             "answer": self.answer,
             "lineage": self.lineage.to_dict(),
-            "raw_results": self.raw_results
+            "raw_results": self.raw_results,
+            "raw_docs": self.raw_docs
         }
 
     def to_json(self) -> str:

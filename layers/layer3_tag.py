@@ -148,14 +148,18 @@ class TAGRetrieval:
         )
         return doc_id
 
-    def retrieve_documents(self, query: str, top_k: int = 5) -> List[Dict[str, Any]]:
+    def retrieve_documents(self, query: str, top_k: int = 5, where_filter: Optional[Dict[str, str]] = None) -> List[Dict[str, Any]]:
         if self.docs_collection.count() == 0:
             return []
         query_embedding = self.model.encode(query).tolist()
-        results = self.docs_collection.query(
-            query_embeddings=[query_embedding],
-            n_results=min(top_k, self.docs_collection.count())
-        )
+        query_kwargs = {
+            "query_embeddings": [query_embedding],
+            "n_results": min(top_k, self.docs_collection.count())
+        }
+        if where_filter:
+            query_kwargs["where"] = where_filter
+
+        results = self.docs_collection.query(**query_kwargs)
         docs = []
         if results and results["ids"]:
             for i, doc_id in enumerate(results["ids"][0]):
