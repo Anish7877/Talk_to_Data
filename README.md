@@ -27,10 +27,6 @@ A 6-layer AI-powered natural language to SQL/data pipeline system powered by **G
 - **Secure Execution**: Read-only database role with parameterized queries
 - **Full Audit Trail**: Complete lineage tracing for every query
 
-## Demo Link
-
-- **Link**: https://nexus-intelligence-ai.streamlit.app/
-
 ## Prerequisites
 
 - Python 3.11+
