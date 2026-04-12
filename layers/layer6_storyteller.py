@@ -251,7 +251,7 @@ Do not mention SQL, tables, or technical details."""
         if os.path.exists(self.lineage_log_path):
             import json  # Make sure json is imported
             try:
-                with open(self.log_path, "r") as f:
+                with open(self.lineage_log_path, "r") as f:
                     lines = f.readlines()
                     # Parse the JSON string from each line back into a dictionary
                     for line in reversed(lines[-limit:]):
