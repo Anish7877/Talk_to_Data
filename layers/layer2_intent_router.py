@@ -32,23 +32,27 @@ class IntentRouter:
     FIX: Removed duplicate class definition that existed in original file.
     """
 
-    ROUTER_PROMPT = """You are a query classifier for an AI system.
+    ROUTER_PROMPT = """You are a query classifier and intent routing agent for an AI system.
 
     Given a user query, classify it into one of three categories:
     - "sql": The query asks for structured data, metrics, counts, or numerical data from a database
     - "rag": The query asks for explanations, definitions, concepts, documents, policies, or unstructured text
     - "both": The query requires both database data and document context
 
+    AND to identify any required database schemas or tables the user implies.
+    If the user explicitly uses a mention like `@tablename`, capture it. If they don't, figure out the logical schema/tables they are asking about based on context (e.g. if they say 'sales', they might mean 'orders').
+
     Return a JSON object with:
     - "route": The category ("sql", "rag", or "both")
+    - "schemas": A list of strings of database tables/schemas needed (e.g. ["customers", "orders"])
     - "confidence": A number between 0 and 1
     - "reasoning": Brief explanation of the classification
 
     Examples:
-    - "How many orders did we have last month?" -> sql
-    - "What is our return policy?" -> rag
-    - "What is the role of setsid in linux?" -> rag
-    - "Show me sales by region and explain our compensation policy" -> both
+    - "How many orders did we have last month?" -> {{"route": "sql", "schemas": ["orders"], ...}}
+    - "What is our return policy?" -> {{"route": "rag", "schemas": [], ...}}
+    - "Show me sales by region" -> {{"route": "sql", "schemas": ["orders", "sales", "region"], ...}}
+    - "Get details about @users" -> {{"route": "sql", "schemas": ["users"], ...}}
 
     Query: {query}
 
@@ -73,6 +77,7 @@ class IntentRouter:
         result = json.loads(response["choices"][0]["message"]["content"])
         return {
             "route": result.get("route", "sql"),
+            "schemas": result.get("schemas", []),
             "confidence": result.get("confidence", 0.5),
             "reasoning": result.get("reasoning", "")
         }

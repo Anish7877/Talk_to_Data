@@ -231,9 +231,20 @@ def inject_custom_css():
         }
 
         /* ── GLOBAL ── */
+        /* OLD CODE (Maintained as requested):
         .stApp {
             background: #f8fafc !important;
             color: #0f172a !important;
+        }
+        */
+        .stApp {
+            background: #f8fafc !important;
+            color: #0f172a !important;
+        }
+        
+        /* ── TOP BAR (HEADER) ── Fixes the black top bar */
+        [data-testid="stHeader"], header[data-testid="stHeader"] {
+            background-color: #f8fafc !important;
         }
         .stApp p, .stApp label, .stMarkdown p,
         .stTextInput label, .stTextArea label,
@@ -403,6 +414,7 @@ def inject_custom_css():
         }
 
         /* ── INPUTS ── */
+        /* OLD CODE (Maintained as requested):
         .stTextInput input, .stTextArea textarea {
             background: #ffffff !important;
             border: 1px solid #e2e8f0 !important;
@@ -421,13 +433,61 @@ def inject_custom_css():
             font-weight: 500 !important;
         }
 
-        /* ── CHAT INPUT ── */
         [data-testid="stChatInput"] {
             background: #ffffff !important;
             border: 1px solid #e2e8f0 !important;
             border-radius: 14px !important;
             box-shadow: 0 2px 8px rgba(0,0,0,0.05) !important;
         }
+        */
+        
+        div[data-baseweb="input"] > div, div[data-baseweb="textarea"] > div, .stTextInput input, .stTextArea textarea {
+            background-color: #ffffff !important;
+            border: 1px solid #e2e8f0 !important;
+            color: #0f172a !important;
+            border-radius: 10px !important;
+            font-size: 0.9rem !important;
+            transition: border-color 0.2s ease, box-shadow 0.2s ease !important;
+        }
+        div[data-baseweb="input"]:focus-within > div, div[data-baseweb="textarea"]:focus-within > div, .stTextInput input:focus, .stTextArea textarea:focus {
+            border-color: #334155 !important;
+            box-shadow: 0 0 0 3px rgba(51,65,85,0.08) !important;
+            background-color: #ffffff !important;
+        }
+        .stTextInput label, .stTextArea label, .stSelectbox label, .stMultiSelect label, div[data-testid="stFileUploader"] label {
+            color: #475569 !important;
+            font-size: 0.85rem !important;
+            font-weight: 500 !important;
+        }
+
+        /* ── CHAT INPUT ── */
+        [data-testid="stChatInput"] {
+            background-color: #ffffff !important;
+            border: 1px solid #e2e8f0 !important;
+            border-radius: 14px !important;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.05) !important;
+        }
+
+        /* ── ATTACHMENT POPOVER BUTTON (Matches Chat Input) ── */
+        div[data-testid="stPopover"] > button {
+            border-radius: 14px !important;
+            border: 1px solid #e2e8f0 !important;
+            background-color: #ffffff !important;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.05) !important;
+            height: 48px !important;
+            padding: 0 !important;
+            color: #334155 !important;
+            transition: border-color 0.2s ease !important;
+        }
+        div[data-testid="stPopover"] > button:hover {
+            border-color: #334155 !important;
+        }
+        /* Hide the popover chevron arrow for a cleaner look */
+        div[data-testid="stPopover"] > button svg[data-testid="stIconMaterial"]:last-of-type,
+        div[data-testid="stPopover"] > button div > svg {
+            display: none !important;
+        }
+
         [data-testid="stChatInput"]:focus-within {
             border-color: #334155 !important;
             box-shadow: 0 0 0 3px rgba(51,65,85,0.08) !important;
@@ -650,7 +710,7 @@ def parse_and_add_documents(uploaded_files):
             tmp_path = tmp.name
 
         try:
-            result = system.upload_file(tmp_path)
+            result = system.upload_file(tmp_path, original_file_name=uploaded_file.name)
 
             # Rename result file_name back to the original uploaded name for display
             result["file_name"] = uploaded_file.name
@@ -678,6 +738,25 @@ def parse_and_add_documents(uploaded_files):
         st.toast(f"{success_count}/{total} files ingested", icon=":material/warning:")
     else:
         st.toast("All files failed to ingest", icon=":material/error:")
+
+    # Update MongoDB with authorized documents for the user
+    user_email = st.session_state.get("user_email")
+    if user_email:
+        new_docs = []
+        for r in results["unstructured"]:
+            new_docs.append(str(r["file_name"]))
+        # Optionally structured files can also be scoped or made globally available as schemas. Let's add them too for tracking.
+        for r in results["structured"]:
+            new_docs.append(str(r["file_name"]))
+            
+        if new_docs:
+            try:
+                users_collection.update_one(
+                    {"email": user_email},
+                    {"$addToSet": {"documents": {"$each": new_docs}}}
+                )
+            except Exception as e:
+                st.error(f"Failed to secure document access bindings: {e}")
 
     # Structured files
     for r in results["structured"]:
@@ -773,16 +852,24 @@ def render_sidebar():
                     st.metric("Schemas", stats['tag_collections']['schemas'])
 
                 uploads = st.session_state.query_system.list_uploads()
-                if uploads["schemas"] or uploads["documents"]:
+                
+                # Fetch only user owned documents for sidebar display
+                user_email = st.session_state.get("user_email")
+                user_record = users_collection.find_one({"email": user_email}) if user_email else None
+                user_docs = user_record.get("documents", []) if user_record else []
+                
+                filtered_docs = [d for d in uploads.get("documents", []) if d.get("file_name", d["id"]) in user_docs]
+                
+                if uploads["schemas"] or filtered_docs:
                     with st.expander("Loaded Data Sources", icon=":material/database:"):
                         if uploads["schemas"]:
                             st.caption("SQL Tables")
                             for s in uploads["schemas"]:
                                 st.markdown(f"- `{s}`")
-                        if uploads["documents"]:
+                        if filtered_docs:
                             st.caption("RAG Documents")
                             seen_files = set()
-                            for d in uploads["documents"]:
+                            for d in filtered_docs:
                                 fname = d.get("file_name", d["id"])
                                 if fname not in seen_files:
                                     seen_files.add(fname)
@@ -973,13 +1060,143 @@ def render_welcome_screen():
                     st.rerun()
 
 
+import streamlit.components.v1 as components
+
+def inject_mentions_js(schemas):
+    """Injects a highly customized JS popover for @mentions in st.chat_input."""
+    js_schemas = json.dumps(schemas)
+    js_code = f"""
+    <script>
+    (function() {{
+        const schemas_str = JSON.stringify({js_schemas});
+        const parentDoc = window.parent.document;
+        
+        // Dynamically update schemas on the parent scope so closures stay fresh
+        parentDoc.mentionSchemas = JSON.parse(schemas_str);
+        
+        function initMentionPopup() {{
+            let popup = parentDoc.getElementById("mention-popup");
+            if (!popup) {{
+                popup = parentDoc.createElement("div");
+                popup.id = "mention-popup";
+                popup.style.cssText = "display: none; position: absolute; z-index: 999999; background: white; border: 1px solid #e2e8f0; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); max-height: 200px; overflow-y: auto; min-width: 200px;";
+                parentDoc.body.appendChild(popup);
+            }}
+
+            if (parentDoc.body.dataset.mentionsBound === "true") return;
+            parentDoc.body.dataset.mentionsBound = "true";
+
+            parentDoc.body.addEventListener('input', function(e) {{
+                if (e.target.tagName !== 'TEXTAREA') return;
+                
+                let textarea = e.target;
+                let val = textarea.value;
+                
+                // Allow binding even if data-testid isn't strictly stChatInput by checking if inside form/chat container
+                let chatInputContainer = e.target.closest('div[data-testid="stChatInput"]');
+                if (!chatInputContainer) {{
+                   // For fallback incase Streamlit changes the test id internally
+                   chatInputContainer = textarea.parentElement;
+                }}
+                
+                let cursorStart = textarea.selectionStart;
+                let textBeforeCursor = val.substring(0, cursorStart);
+                
+                let lastAt = textBeforeCursor.lastIndexOf('@');
+                if (lastAt !== -1) {{
+                    let searchStr = textBeforeCursor.substring(lastAt + 1);
+                    if (!searchStr.includes(' ')) {{
+                        let currentSchemas = parentDoc.mentionSchemas || [];
+                        let matches = currentSchemas.filter(s => s.toLowerCase().startsWith(searchStr.toLowerCase()));
+                        
+                        if (matches.length > 0) {{
+                            popup.innerHTML = "";
+                            matches.forEach(m => {{
+                                let div = parentDoc.createElement("div");
+                                div.innerText = "@" + m;
+                                div.style.cssText = "padding: 8px 12px; cursor: pointer; font-family: Inter, sans-serif; font-size: 14px; color: #1e293b; border-bottom: 1px solid #f1f5f9; background: white;";
+                                div.onmouseover = () => div.style.backgroundColor = "#f1f5f9";
+                                div.onmouseout = () => div.style.backgroundColor = "white";
+                                div.onclick = () => {{
+                                    let beforeAt = val.substring(0, lastAt);
+                                    let afterCursor = val.substring(cursorStart);
+                                    let newVal = beforeAt + "@" + m + " " + afterCursor;
+                                    
+                                    const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.parent.HTMLTextAreaElement.prototype, "value").set;
+                                    nativeInputValueSetter.call(textarea, newVal);
+                                    textarea.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                                    
+                                    popup.style.display = "none";
+                                    textarea.focus();
+                                    
+                                    setTimeout(() => {{
+                                        textarea.selectionStart = textarea.selectionEnd = beforeAt.length + m.length + 2;
+                                    }}, 20);
+                                }};
+                                popup.appendChild(div);
+                            }});
+                            
+                            let rect = chatInputContainer.getBoundingClientRect();
+                            if (rect.top === 0 && rect.left === 0) {{
+                                rect = textarea.getBoundingClientRect(); // fallback sizing
+                            }}
+                            
+                            popup.style.left = Math.max(0, rect.left) + "px";
+                            // Position popup above the field, avoiding negative top
+                            let topPos = rect.top + parentDoc.defaultView.scrollY - Math.min(matches.length * 37, 200) - 10;
+                            popup.style.top = Math.max(0, topPos) + "px";
+                            popup.style.display = "block";
+                            return;
+                        }}
+                    }}
+                }}
+                popup.style.display = "none";
+            }});
+            
+            parentDoc.addEventListener('click', function(e) {{
+               if (!popup.contains(e.target)) {{
+                   popup.style.display = "none";
+               }}
+            }});
+        }}
+        
+        initMentionPopup();
+    }})();
+    </script>
+    """
+    components.html(js_code, height=0, width=0)
+
 def main():
     """Main Streamlit application."""
     inject_custom_css()
     initialize_session_state()
-
-
-
+    
+    user_email = st.session_state.get("user_email")
+    schemas = []
+    
+    if st.session_state.get("query_system"):
+        try:
+            uploads = st.session_state.query_system.list_uploads()
+            
+            # ALL users can see schemas natively
+            schemas = uploads.get("schemas", [])
+            
+            # ONLY add RAG documents that the current user owns
+            user_record = users_collection.find_one({"email": user_email}) if user_email else None
+            user_docs = user_record.get("documents", []) if user_record else []
+            
+            for doc_name in user_docs:
+                if doc_name and doc_name != "unknown":
+                    if doc_name not in schemas:
+                        schemas.append(doc_name)
+                    stem = doc_name.rsplit('.', 1)[0]
+                    if stem not in schemas:
+                        schemas.append(stem)
+                        
+        except Exception as e:
+            pass
+            
+    inject_mentions_js(schemas)
     # Gateway Security Intercept (UI Only Mock)
     if not st.session_state.get("authenticated", False):
         render_auth_screen()
@@ -1037,7 +1254,7 @@ def main():
     st.write("")
 
     prompt = None
-    input_col, attach_col = st.columns([1, 15])
+    input_col, attach_col = st.columns([1.2, 15], vertical_alignment="bottom")
     with input_col:
         with st.popover("", icon=":material/attach_file:", use_container_width=True):
             st.markdown("**Knowledge & Context Management**")
@@ -1083,10 +1300,14 @@ def main():
                     try:
                         selected_sessions = st.session_state.get("active_filters", [st.session_state.current_session_id])
                         context_filter = {"session_id": {"$in": selected_sessions}}
+                        
+                        user_record = users_collection.find_one({"email": st.session_state.user_email}) if st.session_state.get("user_email") else None
+                        authorized_docs = user_record.get("documents", []) if user_record else []
 
                         response = st.session_state.query_system.run_pipeline(
                             user_query=user_prompt,
-                            context_filter=context_filter
+                            context_filter=context_filter,
+                            authorized_docs=authorized_docs
                         )
                         st.write(response.answer)
                         if response.lineage.cache_hit:

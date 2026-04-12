@@ -302,7 +302,7 @@ class DocumentProcessor:
     # Public API
     # ------------------------------------------------------------------
 
-    def process(self, file_path: str) -> Dict[str, Any]:
+    def process(self, file_path: str, original_file_name: Optional[str] = None) -> Dict[str, Any]:
         """
         Main method. Auto-detects file type and processes accordingly.
 
@@ -322,7 +322,7 @@ class DocumentProcessor:
         }
         """
         file_path = str(file_path)
-        file_name = Path(file_path).name
+        file_name = original_file_name or Path(file_path).name
         file_type = classify_file(file_path)
 
         logger.info(f"Processing '{file_name}' as {file_type}")

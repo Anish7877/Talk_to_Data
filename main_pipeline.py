@@ -220,11 +220,11 @@ class AIQuerySystem:
             self.logger.warning(f"Document processor init failed: {e}")
             self.doc_processor = None
 
-    def upload_file(self, file_path: str) -> Dict[str, Any]:
+    def upload_file(self, file_path: str, original_file_name: Optional[str] = None) -> Dict[str, Any]:
         """Upload and process a single file (CSV/Excel/JSON → SQL, PDF/TXT/DOCX → RAG)."""
         if not self.doc_processor:
             return {"success": False, "message": "Document processor not initialized"}
-        return self.doc_processor.process(file_path)
+        return self.doc_processor.process(file_path, original_file_name=original_file_name)
 
     def upload_files(self, file_paths: List[str]) -> List[Dict[str, Any]]:
         """Upload multiple files at once."""
@@ -241,7 +241,7 @@ class AIQuerySystem:
             "documents": self.doc_processor.list_loaded_documents()
         }
 
-    def run_pipeline(self, user_query: str, context_filter: Optional[Dict[str, Any]] = None) -> QueryResponse:
+    def run_pipeline(self, user_query: str, context_filter: Optional[Dict[str, Any]] = None, authorized_docs: Optional[List[str]] = None) -> QueryResponse:
         start_time = time.time()
 
         # ====================================================================================
@@ -284,18 +284,47 @@ class AIQuerySystem:
                 self.logger.warning(f"Cache lookup failed: {e}")
 
         # Step 2: Route query
+        import re
         routing = self.router.route(user_query)
-        route = routing["route"]
-        self.logger.info(f"[ROUTER] route={route} confidence={routing['confidence']:.2f} | {routing['reasoning']}")
+        route = routing.get("route", "sql")
+        inferred_schemas = routing.get("schemas", [])
+        self.logger.info(f"[ROUTER] route={route} confidence={routing.get('confidence', 0):.2f} | schemas={inferred_schemas} | {routing.get('reasoning', '')}")
 
         # Step 3: Retrieve schemas / documents
         schemas, docs, schema_context = [], [], ""
+        
+        # Support explicit @mentions
+        mentions = re.findall(r"@([a-zA-Z0-9_.\-]+)", user_query)
+        
+        # Combine explicit mentions or inferred schemas for higher accuracy
+        combined_hints = []
+        for m in mentions:
+            if m not in combined_hints: combined_hints.append(m)
+        for sc in inferred_schemas:
+            if sc not in combined_hints: combined_hints.append(sc)
+            
+        search_term = user_query
+        if combined_hints:
+            search_term = search_term + " " + " ".join(combined_hints)
+
         if route in ["sql", "both"]:
-            schemas = self.tag.retrieve_schemas(user_query, top_k=2)  # reduce from 3 to 2
+            schemas = self.tag.retrieve_schemas(search_term, top_k=2)  # reduce from 3 to 2
             schema_context = "\n\n".join([s.to_document()[:800] for s in schemas])  # cap each schema at 800 chars            i
             self.logger.info(f"[TAG] Retrieved schemas: {[s.table_name for s in schemas]}")
         if route in ["rag", "both"]:
-            docs = self.tag.retrieve_documents(user_query, top_k=5)
+            # Setup ChromaDB where filter based on MongoDB authorized documents
+            where_filter = None
+            if authorized_docs:
+                if len(authorized_docs) == 1:
+                    where_filter = {"file_name": authorized_docs[0]}
+                else:
+                    where_filter = {"file_name": {"$in": authorized_docs}}
+            elif authorized_docs is not None and len(authorized_docs) == 0:
+                # If they explicitly passed an empty authorized_docs list, force a miss 
+                # (so they can't see other users' documents)
+                where_filter = {"file_name": "NO_ACCESS_NULL_FILE"}
+
+            docs = self.tag.retrieve_documents(search_term, top_k=5, where_filter=where_filter)
             self.logger.info(f"[TAG] Retrieved {len(docs)} documents")
 
         # Steps 4 & 5: Generate SQL and execute
