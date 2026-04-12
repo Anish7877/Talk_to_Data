@@ -28,7 +28,6 @@ import bcrypt
 @st.cache_resource
 def get_db():
     mongo_uri = os.environ.get("MONGO_URI")
-    # Add timeout settings so Streamlit doesn't hang if offline
     client = pymongo.MongoClient(mongo_uri, serverSelectionTimeoutMS=5000)
     return client["nexus_intelligence"]
 
@@ -44,78 +43,14 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-CHAT_HISTORY_FILE = "./data/chat_history.json"
-
-# def save_chat_sessions():
-#     """Serialize and save chat sessions securely to disk to prevent refresh loss."""
-#     os.makedirs("./data", exist_ok=True)
-#     try:
-#         serializable_sessions = {}
-#         for session_id, messages in st.session_state.chat_sessions.items():
-#             serializable_messages = []
-#             for msg in messages:
-#                 ser_msg = {"role": msg["role"], "content": msg["content"]}
-#                 if "lineage" in msg and msg["lineage"]:
-#                     if hasattr(msg["lineage"], 'to_dict'):
-#                         ser_msg["lineage"] = msg["lineage"].to_dict()
-#                     else:
-#                         ser_msg["lineage"] = msg["lineage"]
-#                 serializable_messages.append(ser_msg)
-#             serializable_sessions[session_id] = serializable_messages
-
-#         with open(CHAT_HISTORY_FILE, "w") as f:
-#             json.dump({
-#                 "chat_sessions": serializable_sessions,
-#                 "session_counter": st.session_state.session_counter
-#             }, f, indent=2)
-#     except Exception as e:
-#         self.logger.error(f"Background Save failed: {e}")
-
-# def load_chat_sessions():
-#     """Load safely persistent chat sessions from disk."""
-#     if os.path.exists(CHAT_HISTORY_FILE):
-#         try:
-#             with open(CHAT_HISTORY_FILE, "r") as f:
-#                 data = json.load(f)
-
-#             sessions = data.get("chat_sessions", {})
-#             st.session_state.session_counter = data.get("session_counter", 1)
-
-#             # Rehydrate LineageTrace Dataclasses!
-#             for session_id, messages in sessions.items():
-#                 for msg in messages:
-#                     if "lineage" in msg and msg["lineage"]:
-#                         if isinstance(msg["lineage"], dict):
-#                             valid_keys = LineageTrace.__dataclass_fields__.keys()
-#                             clean_kwargs = {k: v for k, v in msg["lineage"].items() if k in valid_keys}
-#                             msg["lineage"] = LineageTrace(**clean_kwargs)
-
-#             st.session_state.chat_sessions = sessions
-#             if sessions:
-#                 st.session_state.current_session_id = list(sessions.keys())[-1]
-#             else:
-#                 st.session_state.chat_sessions = {"Session 1": []}
-#                 st.session_state.current_session_id = "Session 1"
-#         except Exception as e:
-#             st.session_state.chat_sessions = {"Session 1": []}
-#             st.session_state.current_session_id = "Session 1"
-#             st.session_state.session_counter = 1
-#     else:
-#         st.session_state.chat_sessions = {"Session 1": []}
-#         st.session_state.current_session_id = "Session 1"
-#         st.session_state.session_counter = 1
-
-
 def save_chat_sessions():
     """Serialize, OPTIMIZE, and save chat sessions to MongoDB."""
     user_email = st.session_state.get("user_email")
     if not user_email:
         return
 
-    MAX_SESSIONS = 10  # Cap sessions to prevent MongoDB 512MB limit bloat
-
+    MAX_SESSIONS = 10 
     try:
-        # 1. Cap the number of sessions (Keep the 10 most recent)
         session_keys = list(st.session_state.chat_sessions.keys())
         if len(session_keys) > MAX_SESSIONS:
             for old_key in session_keys[:-MAX_SESSIONS]:
@@ -124,26 +59,16 @@ def save_chat_sessions():
         serializable_sessions = {}
         for session_id, messages in st.session_state.chat_sessions.items():
             serializable_messages = []
-
             for msg in messages:
                 ser_msg = {"role": msg["role"], "content": msg["content"]}
-
                 if "feedback" in msg:
                     ser_msg["feedback"] = msg["feedback"]
-
-                # 2. PRUNE HEAVY DATA: Do NOT save raw_docs to MongoDB
                 if "raw_docs" in msg:
                     ser_msg["raw_docs"] = [{"id": "System optimized: Context hidden in history", "content": "..."}]
-
-                # 3. TRUNCATE LINEAGE: Only save vital metrics to save space
                 if "lineage" in msg and msg["lineage"]:
                     lin = msg["lineage"]
-                    if hasattr(lin, 'to_dict'):
-                        lin_dict = lin.to_dict()
-                    else:
-                        lin_dict = lin
-
-                    # Only keep the small, vital stats
+                    if hasattr(lin, 'to_dict'): lin_dict = lin.to_dict()
+                    else: lin_dict = lin
                     ser_msg["lineage"] = {
                         "query": lin_dict.get("query", ""),
                         "route": lin_dict.get("route", ""),
@@ -151,11 +76,9 @@ def save_chat_sessions():
                         "cache_hit": lin_dict.get("cache_hit", False),
                         "execution_time_ms": lin_dict.get("execution_time_ms", 0)
                     }
-
                 serializable_messages.append(ser_msg)
             serializable_sessions[session_id] = serializable_messages
 
-        # Upsert into MongoDB
         chats_collection.update_one(
             {"email": user_email},
             {"$set": {
@@ -168,7 +91,6 @@ def save_chat_sessions():
         st.error(f"Background Save failed: {e}")
 
 def load_chat_sessions():
-    """Load persistent chat sessions from MongoDB."""
     user_email = st.session_state.get("user_email")
     if not user_email:
         _reset_local_session()
@@ -180,7 +102,6 @@ def load_chat_sessions():
             sessions = user_data["chat_sessions"]
             st.session_state.session_counter = user_data.get("session_counter", 1)
 
-            # Rehydrate truncated LineageTrace Dataclasses
             for session_id, messages in sessions.items():
                 for msg in messages:
                     if "lineage" in msg and msg["lineage"]:
@@ -189,9 +110,9 @@ def load_chat_sessions():
                             query=lin_data.get("query", ""),
                             route=lin_data.get("route", ""),
                             sql_run=lin_data.get("sql_run", None),
-                            tables_used=[],           # Pruned for storage
-                            schemas_retrieved=[],     # Pruned for storage
-                            documents_retrieved=[],   # Pruned for storage
+                            tables_used=[],           
+                            schemas_retrieved=[],     
+                            documents_retrieved=[],   
                             cache_hit=lin_data.get("cache_hit", False),
                             cache_similarity=None,
                             execution_time_ms=lin_data.get("execution_time_ms", 0),
@@ -205,13 +126,11 @@ def load_chat_sessions():
                 _reset_local_session()
         else:
             _reset_local_session()
-
     except Exception as e:
         st.error(f"Failed to load chat sessions: {e}")
         _reset_local_session()
 
 def _reset_local_session():
-    """Helper to reset UI state."""
     st.session_state.chat_sessions = {"Session 1": []}
     st.session_state.current_session_id = "Session 1"
     st.session_state.session_counter = 1
@@ -230,19 +149,11 @@ def inject_custom_css():
             100% { background-position:  200% 0; }
         }
 
-        /* ── GLOBAL ── */
-        /* OLD CODE (Maintained as requested):
-        .stApp {
-            background: #f8fafc !important;
-            color: #0f172a !important;
-        }
-        */
         .stApp {
             background: #f8fafc !important;
             color: #0f172a !important;
         }
         
-        /* ── TOP BAR (HEADER) ── Fixes the black top bar */
         [data-testid="stHeader"], header[data-testid="stHeader"] {
             background-color: #f8fafc !important;
         }
@@ -252,14 +163,12 @@ def inject_custom_css():
             font-family: 'Inter', system-ui, sans-serif !important;
         }
 
-        /* ── LAYOUT ── */
         .block-container {
             padding-top: 1.5rem !important;
             padding-bottom: 4rem !important;
             max-width: 860px !important;
         }
 
-        /* ── TITLE ── */
         h1 {
             font-size: 1.6rem !important;
             font-weight: 700 !important;
@@ -272,18 +181,6 @@ def inject_custom_css():
             margin-bottom: 0 !important;
         }
 
-        /* ── SUBTITLE ── */
-        .subtitle {
-            font-size: 0.82rem;
-            font-weight: 400;
-            color: #94a3b8;
-            text-align: center;
-            margin-bottom: 1.5rem;
-            letter-spacing: 0.8px;
-            text-transform: uppercase;
-        }
-
-        /* ── SIDEBAR ── */
         [data-testid="stSidebar"] {
             background: #f1f5f9 !important;
             border-right: 1px solid #e2e8f0 !important;
@@ -302,7 +199,6 @@ def inject_custom_css():
             font-size: 0.85rem !important;
         }
 
-        /* sidebar session buttons */
         [data-testid="stSidebar"] button[kind="tertiary"] {
             justify-content: flex-start !important;
             padding: 0.45rem 0.6rem !important;
@@ -318,7 +214,6 @@ def inject_custom_css():
             transform: translateX(2px) !important;
         }
 
-        /* sidebar primary button */
         [data-testid="stSidebar"] button[kind="primary"],
         [data-testid="stSidebar"] button[kind="primary"] p,
         [data-testid="stSidebar"] button[kind="primary"] span {
@@ -335,7 +230,6 @@ def inject_custom_css():
             box-shadow: 0 4px 12px rgba(15,23,42,0.2) !important;
         }
 
-        /* hamburger toggle */
         [data-testid="stSidebarCollapsedControl"] svg,
         [data-testid="stSidebar"] button[data-testid="stBaseButton-headerNoPadding"] svg {
             display: none !important;
@@ -347,7 +241,6 @@ def inject_custom_css():
             color: #334155;
         }
 
-        /* ── CHAT BUBBLES ── */
         [data-testid="stChatMessage"] {
             background: #ffffff !important;
             border: 1px solid #e2e8f0 !important;
@@ -367,7 +260,6 @@ def inject_custom_css():
             line-height: 1.8 !important;
         }
 
-        /* ── METRICS ── */
         div[data-testid="stMetricValue"] {
             font-size: 18px !important;
             font-weight: 600 !important;
@@ -381,7 +273,6 @@ def inject_custom_css():
             letter-spacing: 1px !important;
         }
 
-        /* ── BUTTONS ── */
         .stButton > button[kind="primary"] {
             background: #0f172a !important;
             border: none !important;
@@ -413,34 +304,6 @@ def inject_custom_css():
             transform: translateY(-1px) !important;
         }
 
-        /* ── INPUTS ── */
-        /* OLD CODE (Maintained as requested):
-        .stTextInput input, .stTextArea textarea {
-            background: #ffffff !important;
-            border: 1px solid #e2e8f0 !important;
-            color: #0f172a !important;
-            border-radius: 10px !important;
-            font-size: 0.9rem !important;
-            transition: border-color 0.2s ease, box-shadow 0.2s ease !important;
-        }
-        .stTextInput input:focus, .stTextArea textarea:focus {
-            border-color: #334155 !important;
-            box-shadow: 0 0 0 3px rgba(51,65,85,0.08) !important;
-        }
-        .stTextInput label, .stTextArea label {
-            color: #475569 !important;
-            font-size: 0.85rem !important;
-            font-weight: 500 !important;
-        }
-
-        [data-testid="stChatInput"] {
-            background: #ffffff !important;
-            border: 1px solid #e2e8f0 !important;
-            border-radius: 14px !important;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.05) !important;
-        }
-        */
-        
         div[data-baseweb="input"] > div, div[data-baseweb="textarea"] > div, .stTextInput input, .stTextArea textarea {
             background-color: #ffffff !important;
             border: 1px solid #e2e8f0 !important;
@@ -460,7 +323,6 @@ def inject_custom_css():
             font-weight: 500 !important;
         }
 
-        /* ── CHAT INPUT ── */
         [data-testid="stChatInput"] {
             background-color: #ffffff !important;
             border: 1px solid #e2e8f0 !important;
@@ -468,7 +330,6 @@ def inject_custom_css():
             box-shadow: 0 2px 8px rgba(0,0,0,0.05) !important;
         }
 
-        /* ── ATTACHMENT POPOVER BUTTON (Matches Chat Input) ── */
         div[data-testid="stPopover"] > button {
             border-radius: 14px !important;
             border: 1px solid #e2e8f0 !important;
@@ -482,7 +343,6 @@ def inject_custom_css():
         div[data-testid="stPopover"] > button:hover {
             border-color: #334155 !important;
         }
-        /* Hide the popover chevron arrow for a cleaner look */
         div[data-testid="stPopover"] > button svg[data-testid="stIconMaterial"]:last-of-type,
         div[data-testid="stPopover"] > button div > svg {
             display: none !important;
@@ -497,7 +357,6 @@ def inject_custom_css():
             font-size: 0.93rem !important;
         }
 
-        /* ── EXPANDER ── */
         .streamlit-expanderHeader {
             background: #f8fafc !important;
             border-radius: 10px !important;
@@ -511,7 +370,6 @@ def inject_custom_css():
             background: #f1f5f9 !important;
         }
 
-        /* ── CODE ── */
         code, .stCode, pre {
             font-family: 'JetBrains Mono', monospace !important;
             background: #f8fafc !important;
@@ -521,7 +379,6 @@ def inject_custom_css():
             color: #1e293b !important;
         }
 
-        /* ── TABS ── */
         .stTabs [data-baseweb="tab"] {
             font-size: 0.83rem !important;
             font-weight: 500 !important;
@@ -539,14 +396,12 @@ def inject_custom_css():
             background: #e2e8f0 !important;
         }
 
-        /* ── ALERTS ── */
         .stAlert {
             border-radius: 10px !important;
             font-size: 0.88rem !important;
             border-width: 1px !important;
         }
 
-        /* ── FILE UPLOADER ── */
         [data-testid="stFileUploader"] section {
             border: 1.5px dashed #cbd5e1 !important;
             border-radius: 12px !important;
@@ -557,7 +412,6 @@ def inject_custom_css():
             border-color: #94a3b8 !important;
         }
 
-        /* ── MISC ── */
         hr { border-color: #e2e8f0 !important; margin: 0.75rem 0 !important; }
         ::-webkit-scrollbar { width: 5px; height: 5px; }
         ::-webkit-scrollbar-track { background: transparent; }
@@ -566,7 +420,6 @@ def inject_custom_css():
         .stMultiSelect, .stSelectbox { font-size: 0.88rem !important; }
         [data-testid="stPopover"] summary > svg:last-of-type { display: none !important; }
 
-        /* ── WELCOME SCREEN CARDS ── */
         [data-testid="stVerticalBlock"] [data-testid="stVerticalBlock"] div[data-testid="stHorizontalBlock"] > div {
             transition: transform 0.2s ease !important;
         }
@@ -575,13 +428,11 @@ def inject_custom_css():
 
 
 def chunk_text(text: str, chunk_size: int = 300) -> list:
-    """Split text efficiently into token-safe chunks for optimized vector embedding."""
     words = text.split()
     return [' '.join(words[i:i+chunk_size]) for i in range(0, len(words), chunk_size)]
 
 
 def render_loading_screen():
-    """Show a premium animated loading screen while the AI system boots."""
     loading_html = """
     <div style="
         display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -627,9 +478,7 @@ def render_loading_screen():
 
 
 def initialize_session_state():
-    """Initialize Streamlit session state and Chat Session Tracking."""
     if "query_system" not in st.session_state:
-        # Show the custom loading screen while initializing
         loading_placeholder = st.empty()
         with loading_placeholder.container():
             render_loading_screen()
@@ -651,9 +500,7 @@ def initialize_session_state():
 
 
 def display_lineage(lineage):
-    """Display lineage trace in an expander using tabs."""
     import json
-
     with st.expander("Developer Trace & SQL Details", icon=":material/data_object:", expanded=False):
         tab1, tab2, tab3, tab4 = st.tabs(["Overview", "SQL Executed", "RAG Sources", "Raw JSON"])
 
@@ -666,7 +513,6 @@ def display_lineage(lineage):
                 st.metric("Cache Status", cache_status)
             with colC:
                 st.metric("Execution Time", f"{lineage.execution_time_ms:.0f} ms")
-
             if lineage.cache_similarity:
                 st.info(f"Query was resolved from semantic cache with {lineage.cache_similarity:.1%} confidence.", icon=":material/bolt:")
 
@@ -687,21 +533,14 @@ def display_lineage(lineage):
             st.json(json.loads(lineage.to_json()))
 
 def parse_and_add_documents(uploaded_files):
-    """
-    Process uploaded files through DocumentProcessor.
-    Structured files (CSV/JSON/Excel) → TAG schema + Postgres
-    Unstructured files (PDF/TXT/DOCX/MD) → ChromaDB RAG
-    """
     if not st.session_state.query_system:
         st.error("System not initialized.", icon=":material/error:")
         return
 
     system = st.session_state.query_system
-
     results = {"structured": [], "unstructured": [], "failed": []}
 
     for uploaded_file in uploaded_files:
-        # Save the uploaded file to a temp path so DocumentProcessor can read it
         suffix = Path(uploaded_file.name).suffix
         with tempfile.NamedTemporaryFile(
             delete=False, suffix=suffix, prefix=Path(uploaded_file.name).stem + "_"
@@ -711,8 +550,6 @@ def parse_and_add_documents(uploaded_files):
 
         try:
             result = system.upload_file(tmp_path, original_file_name=uploaded_file.name)
-
-            # Rename result file_name back to the original uploaded name for display
             result["file_name"] = uploaded_file.name
 
             if result["success"]:
@@ -723,31 +560,18 @@ def parse_and_add_documents(uploaded_files):
             else:
                 results["failed"].append(result)
         finally:
-            # Always clean up the temp file
-            try:
-                os.unlink(tmp_path)
-            except Exception:
-                pass
+            try: os.unlink(tmp_path)
+            except Exception: pass
 
     total = len(uploaded_files)
     success_count = len(results["structured"]) + len(results["unstructured"])
 
-    if success_count == total:
-        st.toast(f"Successfully ingested {total} file(s)", icon=":material/check_circle:")
-    elif success_count > 0:
-        st.toast(f"{success_count}/{total} files ingested", icon=":material/warning:")
-    else:
-        st.toast("All files failed to ingest", icon=":material/error:")
-
-    # Update MongoDB with authorized documents for the user
+    # Update MongoDB explicitly with new documents so visibility restricts properly
     user_email = st.session_state.get("user_email")
     if user_email:
         new_docs = []
-        for r in results["unstructured"]:
-            new_docs.append(str(r["file_name"]))
-        # Optionally structured files can also be scoped or made globally available as schemas. Let's add them too for tracking.
-        for r in results["structured"]:
-            new_docs.append(str(r["file_name"]))
+        for r in results["unstructured"]: new_docs.append(str(r["file_name"]))
+        for r in results["structured"]: new_docs.append(str(r["file_name"]))
             
         if new_docs:
             try:
@@ -758,36 +582,15 @@ def parse_and_add_documents(uploaded_files):
             except Exception as e:
                 st.error(f"Failed to secure document access bindings: {e}")
 
-    # Structured files
-    for r in results["structured"]:
-        st.success(
-            f"**{r['file_name']}** → Structured data loaded\n\n"
-            f"Table: `{r['table_name']}` · {r['row_count']} rows · "
-            f"Columns: {', '.join(r['columns'][:5])}{'...' if len(r['columns']) > 5 else ''}\n\n"
-            f"{'Written to database' if r.get('db_written') else 'Schema registered (no DB write — set admin credentials)'}",
-            icon=":material/table:"
-        )
-
-    # Unstructured files
-    for r in results["unstructured"]:
-        st.success(
-            f"**{r['file_name']}** → Added to knowledge base\n\n"
-            f"{r['chunk_count']} chunks · {r['char_count']:,} characters extracted",
-            icon=":material/description:"
-        )
-
-    # Failed files
-    for r in results["failed"]:
-        st.error(
-            f"**{r['file_name']}** failed: {r['message']}",
-            icon=":material/error:"
-        )
-
+    if success_count == total:
+        st.toast(f"Successfully ingested {total} file(s)", icon=":material/check_circle:")
+    elif success_count > 0:
+        st.toast(f"{success_count}/{total} files ingested", icon=":material/warning:")
+    else:
+        st.toast("All files failed to ingest", icon=":material/error:")
 
 def render_sidebar():
-    """Render the sidebar carefully engineered like Gemini."""
     with st.sidebar:
-        # Product branding at top
         st.markdown("""
             <div style="padding:0.3rem 0 1rem 0; border-bottom:1px solid #e2e8f0; margin-bottom:1rem;">
                 <p style="font-size:0.7rem; font-weight:700; letter-spacing:2px;
@@ -800,14 +603,13 @@ def render_sidebar():
                 </span>
             </div>
         """, unsafe_allow_html=True)
-        # ... rest of sidebar unchanged ...
         st.markdown("""
             <p style="font-size:0.7rem; font-weight:600; letter-spacing:1.5px;
                       text-transform:uppercase; color:#94a3b8; margin:0 0 0.5rem 0.1rem;">
                 Conversations
             </p>
         """, unsafe_allow_html=True)
-        # Top Native Button
+        
         if st.button("New Chat", icon=":material/add:", type="primary", use_container_width=True):
             st.session_state.session_counter += 1
             new_id = f"Session {st.session_state.session_counter}"
@@ -819,8 +621,6 @@ def render_sidebar():
         st.markdown("<br>", unsafe_allow_html=True)
         st.header("Chat History")
 
-        # List sessions with minimal tertiary link style
-        # Iterate in REVERSE order so newest is at the top
         for session_id in reversed(list(st.session_state.chat_sessions.keys())):
             title = session_id
             session_messages = st.session_state.chat_sessions[session_id]
@@ -834,26 +634,20 @@ def render_sidebar():
                 st.session_state.current_session_id = session_id
                 st.rerun()
 
-        # Spacer to keep settings from overlapping chat list
         st.markdown("<br>" * 3, unsafe_allow_html=True)
 
-        # Settings pinned at bottom via CSS
         with st.expander("Settings & Resources", icon=":material/settings:", expanded=False):
             st.caption("System Resources")
             if st.session_state.query_system:
                 stats = st.session_state.query_system.get_stats()
-
                 c1, c2, c3 = st.columns(3)
-                with c1:
-                    st.metric("Cache", stats['cache_stats']['total_entries'])
-                with c2:
-                    st.metric("Docs", stats['tag_collections']['documents'])
-                with c3:
-                    st.metric("Schemas", stats['tag_collections']['schemas'])
+                with c1: st.metric("Cache", stats['cache_stats']['total_entries'])
+                with c2: st.metric("Docs", stats['tag_collections']['documents'])
+                with c3: st.metric("Schemas", stats['tag_collections']['schemas'])
 
                 uploads = st.session_state.query_system.list_uploads()
                 
-                # Fetch only user owned documents for sidebar display
+                # Fetch only user owned documents for sidebar display visibility
                 user_email = st.session_state.get("user_email")
                 user_record = users_collection.find_one({"email": user_email}) if user_email else None
                 user_docs = user_record.get("documents", []) if user_record else []
@@ -883,13 +677,8 @@ def render_sidebar():
                     save_chat_sessions()
                     st.rerun()
 
-                # st.divider()
-                # if st.button("Logout", icon=":material/logout:", use_container_width=True):
-                #     st.session_state.authenticated = False
-                #     st.rerun()
                 st.divider()
                 if st.button("Logout", icon=":material/logout:", use_container_width=True):
-                    # Clear session data securely on logout
                     st.session_state.authenticated = False
                     st.session_state.user_email = None
                     st.session_state.user_name = None
@@ -900,48 +689,7 @@ def render_sidebar():
             else:
                 st.warning("System Offline")
 
-# def render_auth_screen():
-#     """Render a premium front-end login gateway (Logic mocked per user request)."""
-#     st.markdown("""
-#         <div style="text-align: center; padding-top: 4rem; animation: fadeInUp 0.7s ease-out;">
-#             <div style="display: inline-block; padding: 0.6rem 1.4rem; border: 1px solid rgba(20,184,166,0.3); border-radius: 50px; margin-bottom: 1.5rem; font-size: 0.78rem; color: #2dd4bf; letter-spacing: 1.5px; text-transform: uppercase; font-family: 'Inter', sans-serif;">Secure Access Portal</div>
-#         </div>
-#     """, unsafe_allow_html=True)
-#     st.markdown("<h1 style='text-align: center; margin-bottom: 0px;'>Nexus Intelligence</h1>", unsafe_allow_html=True)
-#     st.markdown("<p style='text-align: center; color: #6e7681; margin-bottom: 2.5rem; font-family: Inter, sans-serif; font-size: 1rem;'>Enterprise Knowledge & Semantic RAG Engine</p>", unsafe_allow_html=True)
-
-#     # To make the login box wider, we increase the middle column's ratio.
-#     col1, col2, col3 = st.columns([1, 2.0, 1])
-#     with col2:
-#         with st.container(border=True):
-#             tab1, tab2 = st.tabs(["Log In", "Sign Up"])
-
-#             with tab1:
-#                 st.markdown("### Welcome Back")
-#                 st.caption("Please authenticate to access your Nexus Data Warehouse.")
-#                 st.text_input("Work Email", placeholder="name@company.com", key="login_email")
-#                 st.text_input("Password", type="password", key="login_pass")
-#                 st.write("")
-#                 if st.button("Secure Login", icon=":material/login:", use_container_width=True, type="primary"):
-#                     # Dummy logic - immediately pass through
-#                     st.session_state.authenticated = True
-#                     st.rerun()
-
-#             with tab2:
-#                 st.markdown("### Create Account")
-#                 st.caption("Your data remains isolated under Enterprise standards.")
-#                 st.text_input("Full Name", placeholder="Jane Doe")
-#                 st.text_input("Work Email", placeholder="name@company.com", key="signup_email")
-#                 st.text_input("Password", type="password", key="signup_pass")
-#                 st.write("")
-#                 if st.button("Register Account", icon=":material/person_add:", use_container_width=True, type="primary"):
-#                     st.toast("Registration Successful! Signing you in...", icon=":material/check_circle:")
-#                     st.session_state.authenticated = True
-#                     st.rerun()
-
-
 def render_auth_screen():
-    """Render a premium front-end login gateway (Connected to MongoDB)."""
     st.markdown("""
         <div style="text-align: center; padding-top: 4rem; animation: fadeInUp 0.7s ease-out;">
             <div style="display: inline-block; padding: 0.6rem 1.4rem; border: 1px solid rgba(20,184,166,0.3); border-radius: 50px; margin-bottom: 1.5rem; font-size: 0.78rem; color: #2dd4bf; letter-spacing: 1.5px; text-transform: uppercase; font-family: 'Inter', sans-serif;">Secure Access Portal</div>
@@ -1060,107 +808,219 @@ def render_welcome_screen():
                     st.rerun()
 
 
+# import streamlit.components.v1 as components
+
+# def inject_mentions_js(schemas):
+#     """Injects a highly customized JS popover for @mentions in st.chat_input."""
+#     js_schemas = json.dumps(schemas)
+#     js_code = f"""
+#     <script>
+#     (function() {{
+#         const schemas_str = JSON.stringify({js_schemas});
+#         const parentDoc = window.parent.document;
+        
+#         // Dynamically update schemas on the parent scope so closures stay fresh
+#         parentDoc.mentionSchemas = JSON.parse(schemas_str);
+        
+#         function initMentionPopup() {{
+#             let popup = parentDoc.getElementById("mention-popup");
+#             if (!popup) {{
+#                 popup = parentDoc.createElement("div");
+#                 popup.id = "mention-popup";
+#                 popup.style.cssText = "display: none; position: absolute; z-index: 999999; background: white; border: 1px solid #e2e8f0; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); max-height: 200px; overflow-y: auto; min-width: 200px;";
+#                 parentDoc.body.appendChild(popup);
+#             }}
+
+#             if (parentDoc.body.dataset.mentionsBound === "true") return;
+#             parentDoc.body.dataset.mentionsBound = "true";
+
+#             parentDoc.body.addEventListener('input', function(e) {{
+#                 if (e.target.tagName !== 'TEXTAREA') return;
+                
+#                 let textarea = e.target;
+#                 let val = textarea.value;
+                
+#                 let chatInputContainer = e.target.closest('div[data-testid="stChatInput"]');
+#                 if (!chatInputContainer) {{
+#                    chatInputContainer = textarea.parentElement;
+#                 }}
+                
+#                 let cursorStart = textarea.selectionStart;
+#                 let textBeforeCursor = val.substring(0, cursorStart);
+                
+#                 let lastAt = textBeforeCursor.lastIndexOf('@');
+#                 if (lastAt !== -1) {{
+#                     let searchStr = textBeforeCursor.substring(lastAt + 1);
+#                     if (!searchStr.includes(' ')) {{
+#                         let currentSchemas = parentDoc.mentionSchemas || [];
+#                         let matches = currentSchemas.filter(s => s.toLowerCase().startsWith(searchStr.toLowerCase()));
+                        
+#                         if (matches.length > 0) {{
+#                             popup.innerHTML = "";
+#                             matches.forEach(m => {{
+#                                 let div = parentDoc.createElement("div");
+#                                 div.innerText = "@" + m;
+#                                 div.style.cssText = "padding: 8px 12px; cursor: pointer; font-family: Inter, sans-serif; font-size: 14px; color: #1e293b; border-bottom: 1px solid #f1f5f9; background: white;";
+#                                 div.onmouseover = () => div.style.backgroundColor = "#f1f5f9";
+#                                 div.onmouseout = () => div.style.backgroundColor = "white";
+#                                 div.onclick = () => {{
+#                                     let beforeAt = val.substring(0, lastAt);
+#                                     let afterCursor = val.substring(cursorStart);
+#                                     let newVal = beforeAt + "@" + m + " " + afterCursor;
+                                    
+#                                     const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.parent.HTMLTextAreaElement.prototype, "value").set;
+#                                     nativeInputValueSetter.call(textarea, newVal);
+#                                     textarea.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                                    
+#                                     popup.style.display = "none";
+#                                     textarea.focus();
+                                    
+#                                     setTimeout(() => {{
+#                                         textarea.selectionStart = textarea.selectionEnd = beforeAt.length + m.length + 2;
+#                                     }}, 20);
+#                                 }};
+#                                 popup.appendChild(div);
+#                             }});
+                            
+#                             let rect = chatInputContainer.getBoundingClientRect();
+#                             if (rect.top === 0 && rect.left === 0) {{
+#                                 rect = textarea.getBoundingClientRect(); 
+#                             }}
+                            
+#                             popup.style.left = Math.max(0, rect.left) + "px";
+#                             let topPos = rect.top + parentDoc.defaultView.scrollY - Math.min(matches.length * 37, 200) - 10;
+#                             popup.style.top = Math.max(0, topPos) + "px";
+#                             popup.style.display = "block";
+#                             return;
+#                         }}
+#                     }}
+#                 }}
+#                 popup.style.display = "none";
+#             }});
+            
+#             parentDoc.addEventListener('click', function(e) {{
+#                if (!popup.contains(e.target)) {{
+#                    popup.style.display = "none";
+#                }}
+#             }});
+#         }}
+        
+#         initMentionPopup();
+#     }})();
+#     </script>
+#     """
+#     components.html(js_code, height=0, width=0)
+
+import time
 import streamlit.components.v1 as components
 
 def inject_mentions_js(schemas):
     """Injects a highly customized JS popover for @mentions in st.chat_input."""
+    import json
     js_schemas = json.dumps(schemas)
+    
     js_code = f"""
+    <div data-timestamp="{time.time()}" style="display:none;"></div>
     <script>
     (function() {{
         const schemas_str = JSON.stringify({js_schemas});
         const parentDoc = window.parent.document;
+        const parentWin = window.parent;
         
-        // Dynamically update schemas on the parent scope so closures stay fresh
-        parentDoc.mentionSchemas = JSON.parse(schemas_str);
+        parentWin.mentionSchemas = JSON.parse(schemas_str);
         
-        function initMentionPopup() {{
-            let popup = parentDoc.getElementById("mention-popup");
-            if (!popup) {{
-                popup = parentDoc.createElement("div");
-                popup.id = "mention-popup";
-                popup.style.cssText = "display: none; position: absolute; z-index: 999999; background: white; border: 1px solid #e2e8f0; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); max-height: 200px; overflow-y: auto; min-width: 200px;";
-                parentDoc.body.appendChild(popup);
-            }}
+        if (parentWin.mentionsBound) return;
+        parentWin.mentionsBound = true;
 
-            if (parentDoc.body.dataset.mentionsBound === "true") return;
-            parentDoc.body.dataset.mentionsBound = "true";
+        let popup = parentDoc.getElementById("nexus-mention-popup");
+        if (!popup) {{
+            popup = parentDoc.createElement("div");
+            popup.id = "nexus-mention-popup";
+            // FIXED POSITIONING: Breaks out of Streamlit scroll containers
+            popup.style.cssText = "display: none; position: fixed; z-index: 9999999; background: white; border: 1px solid #e2e8f0; border-radius: 12px; box-shadow: 0 -4px 20px rgba(0,0,0,0.15); max-height: 250px; overflow-y: auto; min-width: 300px; padding: 4px;";
+            parentDoc.body.appendChild(popup);
+        }}
 
-            parentDoc.body.addEventListener('input', function(e) {{
-                if (e.target.tagName !== 'TEXTAREA') return;
+        parentDoc.body.addEventListener('input', function(e) {{
+            if (e.target.tagName !== 'TEXTAREA') return;
+            
+            let textarea = e.target;
+            let val = textarea.value;
+            let cursorStart = textarea.selectionStart;
+            let textBeforeCursor = val.substring(0, cursorStart);
+            
+            let lastAt = textBeforeCursor.lastIndexOf('@');
+            if (lastAt !== -1) {{
+                let searchStr = textBeforeCursor.substring(lastAt + 1);
                 
-                let textarea = e.target;
-                let val = textarea.value;
-                
-                // Allow binding even if data-testid isn't strictly stChatInput by checking if inside form/chat container
-                let chatInputContainer = e.target.closest('div[data-testid="stChatInput"]');
-                if (!chatInputContainer) {{
-                   // For fallback incase Streamlit changes the test id internally
-                   chatInputContainer = textarea.parentElement;
-                }}
-                
-                let cursorStart = textarea.selectionStart;
-                let textBeforeCursor = val.substring(0, cursorStart);
-                
-                let lastAt = textBeforeCursor.lastIndexOf('@');
-                if (lastAt !== -1) {{
-                    let searchStr = textBeforeCursor.substring(lastAt + 1);
-                    if (!searchStr.includes(' ')) {{
-                        let currentSchemas = parentDoc.mentionSchemas || [];
-                        let matches = currentSchemas.filter(s => s.toLowerCase().startsWith(searchStr.toLowerCase()));
+                if (!searchStr.includes(' ')) {{
+                    let currentSchemas = parentWin.mentionSchemas || [];
+                    
+                    // CRITICAL FIX: Ensure 's' is actually a string before calling toLowerCase!
+                    let matches = currentSchemas.filter(s => {{
+                        if (typeof s !== 'string') return false;
+                        return s.toLowerCase().includes(searchStr.toLowerCase());
+                    }});
+                    
+                    if (matches.length > 0) {{
+                        popup.innerHTML = "";
                         
-                        if (matches.length > 0) {{
-                            popup.innerHTML = "";
-                            matches.forEach(m => {{
-                                let div = parentDoc.createElement("div");
-                                div.innerText = "@" + m;
-                                div.style.cssText = "padding: 8px 12px; cursor: pointer; font-family: Inter, sans-serif; font-size: 14px; color: #1e293b; border-bottom: 1px solid #f1f5f9; background: white;";
-                                div.onmouseover = () => div.style.backgroundColor = "#f1f5f9";
-                                div.onmouseout = () => div.style.backgroundColor = "white";
-                                div.onclick = () => {{
-                                    let beforeAt = val.substring(0, lastAt);
-                                    let afterCursor = val.substring(cursorStart);
-                                    let newVal = beforeAt + "@" + m + " " + afterCursor;
-                                    
-                                    const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.parent.HTMLTextAreaElement.prototype, "value").set;
-                                    nativeInputValueSetter.call(textarea, newVal);
-                                    textarea.dispatchEvent(new Event('input', {{ bubbles: true }}));
-                                    
-                                    popup.style.display = "none";
-                                    textarea.focus();
-                                    
-                                    setTimeout(() => {{
-                                        textarea.selectionStart = textarea.selectionEnd = beforeAt.length + m.length + 2;
-                                    }}, 20);
-                                }};
-                                popup.appendChild(div);
-                            }});
+                        let header = parentDoc.createElement("div");
+                        header.innerText = "Select Context";
+                        header.style.cssText = "padding: 6px 10px; font-size: 11px; font-weight: bold; color: #94a3b8; text-transform: uppercase;";
+                        popup.appendChild(header);
+
+                        matches.forEach(m => {{
+                            let div = parentDoc.createElement("div");
+                            div.innerText = "📄 " + m;
+                            div.style.cssText = "padding: 10px 12px; cursor: pointer; font-family: Inter, sans-serif; font-size: 14px; color: #0f172a; border-radius: 6px; margin-bottom: 2px; transition: background 0.1s;";
                             
-                            let rect = chatInputContainer.getBoundingClientRect();
-                            if (rect.top === 0 && rect.left === 0) {{
-                                rect = textarea.getBoundingClientRect(); // fallback sizing
-                            }}
+                            div.onmouseover = () => div.style.backgroundColor = "#f1f5f9";
+                            div.onmouseout = () => div.style.backgroundColor = "transparent";
                             
-                            popup.style.left = Math.max(0, rect.left) + "px";
-                            // Position popup above the field, avoiding negative top
-                            let topPos = rect.top + parentDoc.defaultView.scrollY - Math.min(matches.length * 37, 200) - 10;
-                            popup.style.top = Math.max(0, topPos) + "px";
-                            popup.style.display = "block";
-                            return;
-                        }}
+                            div.onclick = () => {{
+                                let beforeAt = val.substring(0, lastAt);
+                                let afterCursor = val.substring(cursorStart);
+                                let newVal = beforeAt + "@" + m + " " + afterCursor;
+                                
+                                const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.parent.HTMLTextAreaElement.prototype, "value").set;
+                                nativeInputValueSetter.call(textarea, newVal);
+                                textarea.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                                
+                                popup.style.display = "none";
+                                textarea.focus();
+                                
+                                setTimeout(() => {{
+                                    textarea.selectionStart = textarea.selectionEnd = beforeAt.length + m.length + 2;
+                                }}, 10);
+                            }};
+                            popup.appendChild(div);
+                        }});
+                        
+                        let chatInputContainer = textarea.closest('div[data-testid="stChatInput"]');
+                        if (!chatInputContainer) chatInputContainer = textarea.parentElement;
+
+                        let rect = chatInputContainer.getBoundingClientRect();
+                        let bottomOffset = parentWin.innerHeight - rect.top + 5; 
+                        
+                        popup.style.bottom = bottomOffset + "px"; 
+                        popup.style.left = rect.left + "px";
+                        popup.style.width = Math.max(rect.width, 300) + "px";
+                        popup.style.top = "auto";
+                        
+                        popup.style.display = "block";
+                        return;
                     }}
                 }}
-                popup.style.display = "none";
-            }});
-            
-            parentDoc.addEventListener('click', function(e) {{
-               if (!popup.contains(e.target)) {{
-                   popup.style.display = "none";
-               }}
-            }});
-        }}
+            }}
+            popup.style.display = "none";
+        }});
         
-        initMentionPopup();
+        parentDoc.addEventListener('click', function(e) {{
+           if (popup && !popup.contains(e.target) && e.target.tagName !== 'TEXTAREA') {{
+               popup.style.display = "none";
+           }}
+        }});
     }})();
     </script>
     """
@@ -1171,32 +1031,45 @@ def main():
     inject_custom_css()
     initialize_session_state()
     
-    user_email = st.session_state.get("user_email")
-    schemas = []
+    safe_schemas = []
     
-    if st.session_state.get("query_system"):
+    if st.session_state.get("authenticated", False) and st.session_state.get("query_system"):
         try:
             uploads = st.session_state.query_system.list_uploads()
             
-            # ALL users can see schemas natively
-            schemas = uploads.get("schemas", [])
+            # 1. Safely extract core schemas as strings
+            for s in uploads.get("schemas", []):
+                if isinstance(s, str):
+                    safe_schemas.append(s)
             
-            # ONLY add RAG documents that the current user owns
+            # 2. Fetch strictly the files owned by THIS specific user
+            user_email = st.session_state.get("user_email")
             user_record = users_collection.find_one({"email": user_email}) if user_email else None
             user_docs = user_record.get("documents", []) if user_record else []
             
-            for doc_name in user_docs:
-                if doc_name and doc_name != "unknown":
-                    if doc_name not in schemas:
-                        schemas.append(doc_name)
-                    stem = doc_name.rsplit('.', 1)[0]
-                    if stem not in schemas:
-                        schemas.append(stem)
+            # 3. Aggressively sanitize MongoDB RAG documents
+            for doc_item in user_docs:
+                # If a legacy document was saved as a dictionary, extract the string name safely
+                doc_name = doc_item.get("file_name", "") if isinstance(doc_item, dict) else str(doc_item)
+                
+                if doc_name and doc_name.strip() and doc_name != "unknown":
+                    safe_schemas.append(doc_name)
+                    
+                    # Safely create a stem (no extension) for typing speed
+                    if "." in doc_name:
+                        stem = doc_name.rsplit('.', 1)[0]
+                        if stem:
+                            safe_schemas.append(stem)
+            
+            # Deduplicate the final safe list
+            safe_schemas = list(set(safe_schemas))
                         
         except Exception as e:
-            pass
+            st.error(f"Failed to load mentions context safely: {e}")
             
-    inject_mentions_js(schemas)
+    # Inject the UI observer with our clean string array
+    inject_mentions_js(safe_schemas)
+    
     # Gateway Security Intercept (UI Only Mock)
     if not st.session_state.get("authenticated", False):
         render_auth_screen()
@@ -1210,7 +1083,6 @@ def main():
                       text-transform:uppercase; color:#94a3b8; margin-bottom:0.3rem;">
                 Enterprise · AI-Powered
             </p>
-            <h1>Nexus Intelligence</h1>
             <p style="font-size:0.82rem; color:#94a3b8; margin-top:0.2rem; letter-spacing:0.5px;">
                 Natural language · Semantic search · SQL generation
             </p>
@@ -1219,7 +1091,6 @@ def main():
     """, unsafe_allow_html=True)
 
     render_sidebar()
-    # Render Welcome Screen OR History
     if len(st.session_state.messages) == 0:
         render_welcome_screen()
     else:
@@ -1228,19 +1099,16 @@ def main():
                 with st.chat_message("assistant", avatar=":material/auto_awesome:"):
                     st.write(message["content"])
 
-                    # Native Streamlit Thumbs Feedback
                     fb = st.feedback("thumbs", key=f"feed_{st.session_state.current_session_id}_{i}")
                     if fb is not None and message.get("feedback") != fb:
                         message["feedback"] = fb
                         save_chat_sessions()
 
-                    # Surfacing Pure Text RAG Contexts explicitly so user can read/copy
                     raw_docs = message.get("raw_docs")
                     if raw_docs:
                         with st.expander("📄 Sourced Knowledge Contexts", expanded=True):
                             for idx, doc in enumerate(raw_docs):
                                 doc_id = doc.get("id", "Document snippet")
-                                # Remove system chunk identifier string if present for cleaner UI
                                 clean_id = doc_id.split('_chunk_')[0] if '_chunk_' in doc_id else doc_id
                                 st.markdown(f"**{clean_id}** (Context {idx+1})")
                                 st.info(doc.get("content", "No content snippet"), icon=":material/format_quote:")
@@ -1270,6 +1138,8 @@ def main():
             if uploaded_files and st.button("Ingest Files", icon=":material/upload_file:", use_container_width=True):
                 with st.spinner("Processing semantics..."):
                     parse_and_add_documents(uploaded_files)
+                # CRUCIAL: Immediately rerun to refresh sidebar visibility and Mentions JS context
+                st.rerun()
 
             st.divider()
 
@@ -1290,7 +1160,6 @@ def main():
         save_chat_sessions()
         st.rerun()
 
-    # Engine Processing Trigger
     if len(st.session_state.messages) > 0 and st.session_state.messages[-1]["role"] == "user":
         user_prompt = st.session_state.messages[-1]["content"]
 
