@@ -49,7 +49,7 @@ def save_chat_sessions():
     if not user_email:
         return
 
-    MAX_SESSIONS = 10 
+    MAX_SESSIONS = 10
     try:
         session_keys = list(st.session_state.chat_sessions.keys())
         if len(session_keys) > MAX_SESSIONS:
@@ -110,9 +110,9 @@ def load_chat_sessions():
                             query=lin_data.get("query", ""),
                             route=lin_data.get("route", ""),
                             sql_run=lin_data.get("sql_run", None),
-                            tables_used=[],           
-                            schemas_retrieved=[],     
-                            documents_retrieved=[],   
+                            tables_used=[],
+                            schemas_retrieved=[],
+                            documents_retrieved=[],
                             cache_hit=lin_data.get("cache_hit", False),
                             cache_similarity=None,
                             execution_time_ms=lin_data.get("execution_time_ms", 0),
@@ -153,7 +153,7 @@ def inject_custom_css():
             background: #f8fafc !important;
             color: #0f172a !important;
         }
-        
+
         [data-testid="stHeader"], header[data-testid="stHeader"] {
             background-color: #f8fafc !important;
         }
@@ -572,7 +572,7 @@ def parse_and_add_documents(uploaded_files):
         new_docs = []
         for r in results["unstructured"]: new_docs.append(str(r["file_name"]))
         for r in results["structured"]: new_docs.append(str(r["file_name"]))
-            
+
         if new_docs:
             try:
                 users_collection.update_one(
@@ -609,7 +609,7 @@ def render_sidebar():
                 Conversations
             </p>
         """, unsafe_allow_html=True)
-        
+
         if st.button("New Chat", icon=":material/add:", type="primary", use_container_width=True):
             st.session_state.session_counter += 1
             new_id = f"Session {st.session_state.session_counter}"
@@ -619,6 +619,31 @@ def render_sidebar():
             st.rerun()
 
         st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.header("Context Filter")
+
+        # Get user's authorized docs for the dropdown
+        user_email = st.session_state.get("user_email")
+        user_record = users_collection.find_one({"email": user_email}) if user_email else None
+        user_docs = user_record.get("documents", []) if user_record else []
+
+        # Clean up doc names for the UI
+        clean_docs = [d.get("file_name", "") if isinstance(d, dict) else str(d) for d in user_docs]
+        clean_docs = [d for d in clean_docs if d and d != "unknown"]
+
+        options = ["All Documents"] + sorted(list(set(clean_docs)))
+
+        selected_source = st.selectbox(
+            "Target specific document:",
+            options,
+            help="Force the AI to only read from this specific file.",
+            label_visibility="collapsed"
+        )
+
+        # Save to session state
+        st.session_state.target_source = selected_source if selected_source != "All Documents" else None
+        st.divider()
+        # ---------------------------------------------
         st.header("Chat History")
 
         for session_id in reversed(list(st.session_state.chat_sessions.keys())):
@@ -646,14 +671,14 @@ def render_sidebar():
                 with c3: st.metric("Schemas", stats['tag_collections']['schemas'])
 
                 uploads = st.session_state.query_system.list_uploads()
-                
+
                 # Fetch only user owned documents for sidebar display visibility
                 user_email = st.session_state.get("user_email")
                 user_record = users_collection.find_one({"email": user_email}) if user_email else None
                 user_docs = user_record.get("documents", []) if user_record else []
-                
+
                 filtered_docs = [d for d in uploads.get("documents", []) if d.get("file_name", d["id"]) in user_docs]
-                
+
                 if uploads["schemas"] or filtered_docs:
                     with st.expander("Loaded Data Sources", icon=":material/database:"):
                         if uploads["schemas"]:
@@ -789,7 +814,9 @@ def render_welcome_screen():
         examples[2] = (f"From {recent_searches[2][0]}", ":material/history:", recent_searches[2][1])
 
     col1, col2, col3 = st.columns(3)
-    for (name, icon, query), col in zip(examples, [col1, col2, col3]):
+
+    # 1. ADD 'enumerate' to get a unique index 'i' for each item
+    for i, ((name, icon, query), col) in enumerate(zip(examples, [col1, col2, col3])):
         with col:
             with st.container(border=True):
                 st.markdown(f"""
@@ -802,11 +829,12 @@ def render_welcome_screen():
                     </p>
                 """, unsafe_allow_html=True)
                 st.write("")
-                if st.button("Run query", icon=icon, key=f"ex_{name}", use_container_width=True):
+
+                # 2. FIX: Use 'i' in the key so it is always 100% unique (ex_btn_0, ex_btn_1, etc.)
+                if st.button("Run query", icon=icon, key=f"ex_btn_{i}", use_container_width=True):
                     st.session_state.messages.append({"role": "user", "content": query})
                     save_chat_sessions()
                     st.rerun()
-
 
 # import streamlit.components.v1 as components
 
@@ -818,10 +846,10 @@ def render_welcome_screen():
 #     (function() {{
 #         const schemas_str = JSON.stringify({js_schemas});
 #         const parentDoc = window.parent.document;
-        
+
 #         // Dynamically update schemas on the parent scope so closures stay fresh
 #         parentDoc.mentionSchemas = JSON.parse(schemas_str);
-        
+
 #         function initMentionPopup() {{
 #             let popup = parentDoc.getElementById("mention-popup");
 #             if (!popup) {{
@@ -836,25 +864,25 @@ def render_welcome_screen():
 
 #             parentDoc.body.addEventListener('input', function(e) {{
 #                 if (e.target.tagName !== 'TEXTAREA') return;
-                
+
 #                 let textarea = e.target;
 #                 let val = textarea.value;
-                
+
 #                 let chatInputContainer = e.target.closest('div[data-testid="stChatInput"]');
 #                 if (!chatInputContainer) {{
 #                    chatInputContainer = textarea.parentElement;
 #                 }}
-                
+
 #                 let cursorStart = textarea.selectionStart;
 #                 let textBeforeCursor = val.substring(0, cursorStart);
-                
+
 #                 let lastAt = textBeforeCursor.lastIndexOf('@');
 #                 if (lastAt !== -1) {{
 #                     let searchStr = textBeforeCursor.substring(lastAt + 1);
 #                     if (!searchStr.includes(' ')) {{
 #                         let currentSchemas = parentDoc.mentionSchemas || [];
 #                         let matches = currentSchemas.filter(s => s.toLowerCase().startsWith(searchStr.toLowerCase()));
-                        
+
 #                         if (matches.length > 0) {{
 #                             popup.innerHTML = "";
 #                             matches.forEach(m => {{
@@ -867,26 +895,26 @@ def render_welcome_screen():
 #                                     let beforeAt = val.substring(0, lastAt);
 #                                     let afterCursor = val.substring(cursorStart);
 #                                     let newVal = beforeAt + "@" + m + " " + afterCursor;
-                                    
+
 #                                     const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.parent.HTMLTextAreaElement.prototype, "value").set;
 #                                     nativeInputValueSetter.call(textarea, newVal);
 #                                     textarea.dispatchEvent(new Event('input', {{ bubbles: true }}));
-                                    
+
 #                                     popup.style.display = "none";
 #                                     textarea.focus();
-                                    
+
 #                                     setTimeout(() => {{
 #                                         textarea.selectionStart = textarea.selectionEnd = beforeAt.length + m.length + 2;
 #                                     }}, 20);
 #                                 }};
 #                                 popup.appendChild(div);
 #                             }});
-                            
+
 #                             let rect = chatInputContainer.getBoundingClientRect();
 #                             if (rect.top === 0 && rect.left === 0) {{
-#                                 rect = textarea.getBoundingClientRect(); 
+#                                 rect = textarea.getBoundingClientRect();
 #                             }}
-                            
+
 #                             popup.style.left = Math.max(0, rect.left) + "px";
 #                             let topPos = rect.top + parentDoc.defaultView.scrollY - Math.min(matches.length * 37, 200) - 10;
 #                             popup.style.top = Math.max(0, topPos) + "px";
@@ -897,14 +925,14 @@ def render_welcome_screen():
 #                 }}
 #                 popup.style.display = "none";
 #             }});
-            
+
 #             parentDoc.addEventListener('click', function(e) {{
 #                if (!popup.contains(e.target)) {{
 #                    popup.style.display = "none";
 #                }}
 #             }});
 #         }}
-        
+
 #         initMentionPopup();
 #     }})();
 #     </script>
@@ -918,7 +946,7 @@ def inject_mentions_js(schemas):
     """Injects a highly customized JS popover for @mentions in st.chat_input."""
     import json
     js_schemas = json.dumps(schemas)
-    
+
     js_code = f"""
     <div data-timestamp="{time.time()}" style="display:none;"></div>
     <script>
@@ -926,9 +954,9 @@ def inject_mentions_js(schemas):
         const schemas_str = JSON.stringify({js_schemas});
         const parentDoc = window.parent.document;
         const parentWin = window.parent;
-        
+
         parentWin.mentionSchemas = JSON.parse(schemas_str);
-        
+
         if (parentWin.mentionsBound) return;
         parentWin.mentionsBound = true;
 
@@ -943,28 +971,28 @@ def inject_mentions_js(schemas):
 
         parentDoc.body.addEventListener('input', function(e) {{
             if (e.target.tagName !== 'TEXTAREA') return;
-            
+
             let textarea = e.target;
             let val = textarea.value;
             let cursorStart = textarea.selectionStart;
             let textBeforeCursor = val.substring(0, cursorStart);
-            
+
             let lastAt = textBeforeCursor.lastIndexOf('@');
             if (lastAt !== -1) {{
                 let searchStr = textBeforeCursor.substring(lastAt + 1);
-                
+
                 if (!searchStr.includes(' ')) {{
                     let currentSchemas = parentWin.mentionSchemas || [];
-                    
+
                     // CRITICAL FIX: Ensure 's' is actually a string before calling toLowerCase!
                     let matches = currentSchemas.filter(s => {{
                         if (typeof s !== 'string') return false;
                         return s.toLowerCase().includes(searchStr.toLowerCase());
                     }});
-                    
+
                     if (matches.length > 0) {{
                         popup.innerHTML = "";
-                        
+
                         let header = parentDoc.createElement("div");
                         header.innerText = "Select Context";
                         header.style.cssText = "padding: 6px 10px; font-size: 11px; font-weight: bold; color: #94a3b8; text-transform: uppercase;";
@@ -974,40 +1002,40 @@ def inject_mentions_js(schemas):
                             let div = parentDoc.createElement("div");
                             div.innerText = "📄 " + m;
                             div.style.cssText = "padding: 10px 12px; cursor: pointer; font-family: Inter, sans-serif; font-size: 14px; color: #0f172a; border-radius: 6px; margin-bottom: 2px; transition: background 0.1s;";
-                            
+
                             div.onmouseover = () => div.style.backgroundColor = "#f1f5f9";
                             div.onmouseout = () => div.style.backgroundColor = "transparent";
-                            
+
                             div.onclick = () => {{
                                 let beforeAt = val.substring(0, lastAt);
                                 let afterCursor = val.substring(cursorStart);
                                 let newVal = beforeAt + "@" + m + " " + afterCursor;
-                                
+
                                 const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.parent.HTMLTextAreaElement.prototype, "value").set;
                                 nativeInputValueSetter.call(textarea, newVal);
                                 textarea.dispatchEvent(new Event('input', {{ bubbles: true }}));
-                                
+
                                 popup.style.display = "none";
                                 textarea.focus();
-                                
+
                                 setTimeout(() => {{
                                     textarea.selectionStart = textarea.selectionEnd = beforeAt.length + m.length + 2;
                                 }}, 10);
                             }};
                             popup.appendChild(div);
                         }});
-                        
+
                         let chatInputContainer = textarea.closest('div[data-testid="stChatInput"]');
                         if (!chatInputContainer) chatInputContainer = textarea.parentElement;
 
                         let rect = chatInputContainer.getBoundingClientRect();
-                        let bottomOffset = parentWin.innerHeight - rect.top + 5; 
-                        
-                        popup.style.bottom = bottomOffset + "px"; 
+                        let bottomOffset = parentWin.innerHeight - rect.top + 5;
+
+                        popup.style.bottom = bottomOffset + "px";
                         popup.style.left = rect.left + "px";
                         popup.style.width = Math.max(rect.width, 300) + "px";
                         popup.style.top = "auto";
-                        
+
                         popup.style.display = "block";
                         return;
                     }}
@@ -1015,7 +1043,7 @@ def inject_mentions_js(schemas):
             }}
             popup.style.display = "none";
         }});
-        
+
         parentDoc.addEventListener('click', function(e) {{
            if (popup && !popup.contains(e.target) && e.target.tagName !== 'TEXTAREA') {{
                popup.style.display = "none";
@@ -1030,46 +1058,46 @@ def main():
     """Main Streamlit application."""
     inject_custom_css()
     initialize_session_state()
-    
+
     safe_schemas = []
-    
+
     if st.session_state.get("authenticated", False) and st.session_state.get("query_system"):
         try:
             uploads = st.session_state.query_system.list_uploads()
-            
+
             # 1. Safely extract core schemas as strings
             for s in uploads.get("schemas", []):
                 if isinstance(s, str):
                     safe_schemas.append(s)
-            
+
             # 2. Fetch strictly the files owned by THIS specific user
             user_email = st.session_state.get("user_email")
             user_record = users_collection.find_one({"email": user_email}) if user_email else None
             user_docs = user_record.get("documents", []) if user_record else []
-            
+
             # 3. Aggressively sanitize MongoDB RAG documents
             for doc_item in user_docs:
                 # If a legacy document was saved as a dictionary, extract the string name safely
                 doc_name = doc_item.get("file_name", "") if isinstance(doc_item, dict) else str(doc_item)
-                
+
                 if doc_name and doc_name.strip() and doc_name != "unknown":
                     safe_schemas.append(doc_name)
-                    
+
                     # Safely create a stem (no extension) for typing speed
                     if "." in doc_name:
                         stem = doc_name.rsplit('.', 1)[0]
                         if stem:
                             safe_schemas.append(stem)
-            
+
             # Deduplicate the final safe list
             safe_schemas = list(set(safe_schemas))
-                        
+
         except Exception as e:
             st.error(f"Failed to load mentions context safely: {e}")
-            
+
     # Inject the UI observer with our clean string array
     inject_mentions_js(safe_schemas)
-    
+
     # Gateway Security Intercept (UI Only Mock)
     if not st.session_state.get("authenticated", False):
         render_auth_screen()
@@ -1169,14 +1197,15 @@ def main():
                     try:
                         selected_sessions = st.session_state.get("active_filters", [st.session_state.current_session_id])
                         context_filter = {"session_id": {"$in": selected_sessions}}
-                        
+
                         user_record = users_collection.find_one({"email": st.session_state.user_email}) if st.session_state.get("user_email") else None
                         authorized_docs = user_record.get("documents", []) if user_record else []
 
                         response = st.session_state.query_system.run_pipeline(
                             user_query=user_prompt,
                             context_filter=context_filter,
-                            authorized_docs=authorized_docs
+                            authorized_docs=authorized_docs,
+                            target_source=st.session_state.get("target_source")
                         )
                         st.write(response.answer)
                         if response.lineage.cache_hit:

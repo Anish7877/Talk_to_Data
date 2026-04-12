@@ -241,93 +241,91 @@ class AIQuerySystem:
             "documents": self.doc_processor.list_loaded_documents()
         }
 
-    def run_pipeline(self, user_query: str, context_filter: Optional[Dict[str, Any]] = None, authorized_docs: Optional[List[str]] = None) -> QueryResponse:
+# Change the signature to include target_source
+    def run_pipeline(
+        self,
+        user_query: str,
+        context_filter: Optional[Dict[str, Any]] = None,
+        authorized_docs: Optional[list] = None,
+        target_source: Optional[str] = None
+        ) -> QueryResponse:
+        self.logger.info(f"Query: {user_query}")
         start_time = time.time()
 
-        # ====================================================================================
-        # OLD CACHE BLEED LOGIC (PRESERVED PER REQUEST):
-        # if self.cache:
-        #     try:
-        #         cached = self.cache.get(user_query)
-        #         if cached:
-        #             cached_results = cached.get("metadata", {}).get("results")
-        #             if cached_results:
-        #                 self.logger.info(f"[CACHE HIT] similarity={cached.get('similarity', 0):.3f}")
-        #                 ...
-        # ====================================================================================
+        # Step 1: Routing
+        route_result = self.router.route(user_query)
+        route = route_result["route"]
 
-        if self.cache:
-            try:
-                # NEW FIX: Isolate Session by encoding context into the cache hash key!
-                cache_key = user_query
-                if context_filter:
-                    cache_key = f"{user_query}__CTX__{str(context_filter)}"
+        # ==========================================
+        # NEW: SMART ROUTING OVERRIDE based on File Type
+        # ==========================================
+        if target_source:
+            structured_exts = ['.csv', '.xlsx', '.xls', '.json']
+            unstructured_exts = ['.pdf', '.txt', '.docx', '.md']
 
-                cached = self.cache.get(cache_key)
-                if cached:
-                    cached_results = cached.get("metadata", {}).get("results")
-                    if cached_results:  # only use cache if it has real data
-                        self.logger.info(f"[CACHE HIT] similarity={cached.get('similarity', 0):.3f}")
-                        lineage = self.storyteller.create_lineage(
-                            query=user_query, route="cache",
-                            cache_hit=True, cache_similarity=cached.get("similarity"),
-                            execution_time_ms=0
-                        )
-                        return QueryResponse(
-                            answer=cached["answer"],
-                            lineage=lineage,
-                            raw_results=cached_results
-                        )
-                    else:
-                        self.logger.info("[CACHE MISS] cached entry has no results, re-running pipeline")
-            except Exception as e:
-                self.logger.warning(f"Cache lookup failed: {e}")
+            target_lower = target_source.lower()
+            if any(target_lower.endswith(ext) for ext in structured_exts):
+                if route == "rag":
+                    route = "sql"  # Force SQL for spreadsheets
+                    self.logger.info(f"[ROUTER OVERRIDE] Forced SQL route for structured file: {target_source}")
+            elif any(target_lower.endswith(ext) for ext in unstructured_exts):
+                if route == "sql":
+                    route = "rag"  # Force RAG for documents
+                    self.logger.info(f"[ROUTER OVERRIDE] Forced RAG route for unstructured file: {target_source}")
+        # ==========================================
 
-        # Step 2: Route query
-        import re
-        routing = self.router.route(user_query)
-        route = routing.get("route", "sql")
-        inferred_schemas = routing.get("schemas", [])
-        self.logger.info(f"[ROUTER] route={route} confidence={routing.get('confidence', 0):.2f} | schemas={inferred_schemas} | {routing.get('reasoning', '')}")
+        # Step 2: Semantic Cache Check
+        cache_hit = False
+        cached_result = self.cache.get(user_query)
+        if cached_result:
+            self.logger.info("[CACHE] Hit found")
+            cache_hit = True
+            return QueryResponse(
+                answer=cached_result["answer"],
+                lineage=LineageTrace(**cached_result["lineage"])
+            )
 
         # Step 3: Retrieve schemas / documents
         schemas, docs, schema_context = [], [], ""
-        
-        # Support explicit @mentions
-        mentions = re.findall(r"@([a-zA-Z0-9_.\-]+)", user_query)
-        
-        # Combine explicit mentions or inferred schemas for higher accuracy
-        combined_hints = []
-        for m in mentions:
-            if m not in combined_hints: combined_hints.append(m)
-        for sc in inferred_schemas:
-            if sc not in combined_hints: combined_hints.append(sc)
-            
-        search_term = user_query
-        if combined_hints:
-            search_term = search_term + " " + " ".join(combined_hints)
 
+        # --- SQL RETRIEVAL ---
         if route in ["sql", "both"]:
-            schemas = self.tag.retrieve_schemas(search_term, top_k=2)  # reduce from 3 to 2
-            schema_context = "\n\n".join([s.to_document()[:800] for s in schemas])  # cap each schema at 800 chars            i
+            # Inject the target source into the search query so ChromaDB finds the matching table schema!
+            schema_search_query = f"{user_query} {target_source}" if target_source else user_query
+            schemas = self.tag.retrieve_schemas(schema_search_query, top_k=3)
+            schema_context = "\n\n".join([s.to_document() for s in schemas])
             self.logger.info(f"[TAG] Retrieved schemas: {[s.table_name for s in schemas]}")
+
+        # --- RAG RETRIEVAL ---
         if route in ["rag", "both"]:
-            # Setup ChromaDB where filter based on MongoDB authorized documents
-            where_filter = None
-            if authorized_docs:
-                if len(authorized_docs) == 1:
-                    where_filter = {"file_name": authorized_docs[0]}
+            conditions = []
+
+            if target_source:
+                conditions.append({"source": target_source})
+
+            if authorized_docs is not None:
+                if len(authorized_docs) == 0:
+                    conditions.append({"file_name": "NO_ACCESS_NULL_FILE"})
+                elif len(authorized_docs) == 1:
+                    conditions.append({"file_name": authorized_docs[0]})
                 else:
-                    where_filter = {"file_name": {"$in": authorized_docs}}
-            elif authorized_docs is not None and len(authorized_docs) == 0:
-                # If they explicitly passed an empty authorized_docs list, force a miss 
-                # (so they can't see other users' documents)
-                where_filter = {"file_name": "NO_ACCESS_NULL_FILE"}
+                    conditions.append({"file_name": {"$in": authorized_docs}})
 
-            docs = self.tag.retrieve_documents(search_term, top_k=5, where_filter=where_filter)
-            self.logger.info(f"[TAG] Retrieved {len(docs)} documents")
+            if context_filter:
+                for key, val in context_filter.items():
+                    conditions.append({key: val})
 
-        # Steps 4 & 5: Generate SQL and execute
+            if len(conditions) == 1:
+                where_filter = conditions[0]
+            elif len(conditions) > 1:
+                where_filter = {"$and": conditions}
+            else:
+                where_filter = None
+
+            docs = self.tag.retrieve_documents(user_query, top_k=5, where_filter=where_filter)
+            self.logger.info(f"[TAG] Retrieved {len(docs)} documents with filter: {where_filter}")
+
+        # ... (Leave Step 4: SQL Execution and the rest of the function exactly as it is) ...
         sql_results, sql_query, tables_used = None, None, []
 
         if route in ["sql", "both"] and schema_context:
@@ -408,6 +406,22 @@ class AIQuerySystem:
         if self.cache:
             return self.cache.clear()
         return 0
+
+    def get_available_sources(self) -> list:
+        """Get a list of unique document sources from the RAG database."""
+        if not self.tag or not hasattr(self.tag, 'docs_collection'):
+            return []
+        try:
+            # Fetch all metadata from ChromaDB
+            result = self.tag.docs_collection.get(include=["metadatas"])
+            sources = set()
+            for meta in result.get("metadatas", []):
+                if meta and "source" in meta:
+                    sources.add(meta["source"])
+            return sorted(list(sources))
+        except Exception as e:
+            self.logger.error(f"Failed to get sources: {e}")
+            return []
 
     def health_check(self) -> Dict[str, Any]:
         return {
