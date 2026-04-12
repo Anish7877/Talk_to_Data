@@ -11,6 +11,7 @@ import logging
 from typing import Dict, Any, Optional
 from pathlib import Path
 import os
+from typing import Dict, Any, Optional, List   # add List here
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -36,6 +37,7 @@ class AIQuerySystem:
         self.config = self._load_config(config_path)
         self._auto_setup_database()
         self._initialize_layers()
+        self._init_document_processor()
         if load_sample_schemas:
             self._load_sample_data()
 
@@ -204,6 +206,41 @@ class AIQuerySystem:
         except Exception as e:
             self.logger.warning(f"Could not load sample data: {e}")
 
+    def _init_document_processor(self):
+        """Initialize document processor for file uploads."""
+        try:
+            from document_processor import create_document_processor
+            self.doc_processor = create_document_processor(
+                tag=self.tag,
+                executor=self.executor,
+                config=self.config
+            )
+            self.logger.info("Document processor initialized")
+        except Exception as e:
+            self.logger.warning(f"Document processor init failed: {e}")
+            self.doc_processor = None
+
+    def upload_file(self, file_path: str) -> Dict[str, Any]:
+        """Upload and process a single file (CSV/Excel/JSON → SQL, PDF/TXT/DOCX → RAG)."""
+        if not self.doc_processor:
+            return {"success": False, "message": "Document processor not initialized"}
+        return self.doc_processor.process(file_path)
+
+    def upload_files(self, file_paths: List[str]) -> List[Dict[str, Any]]:
+        """Upload multiple files at once."""
+        if not self.doc_processor:
+            return [{"success": False, "message": "Document processor not initialized"}]
+        return self.doc_processor.process_many(file_paths)
+
+    def list_uploads(self) -> Dict[str, Any]:
+        """Show all currently loaded schemas and RAG documents."""
+        if not self.doc_processor:
+            return {"schemas": [], "documents": []}
+        return {
+            "schemas":   self.doc_processor.list_loaded_schemas(),
+            "documents": self.doc_processor.list_loaded_documents()
+        }
+
     def run_pipeline(self, user_query: str, context_filter: Optional[Dict[str, Any]] = None) -> QueryResponse:
         start_time = time.time()
 
@@ -218,14 +255,14 @@ class AIQuerySystem:
         #                 self.logger.info(f"[CACHE HIT] similarity={cached.get('similarity', 0):.3f}")
         #                 ...
         # ====================================================================================
-        
+
         if self.cache:
             try:
                 # NEW FIX: Isolate Session by encoding context into the cache hash key!
                 cache_key = user_query
                 if context_filter:
                     cache_key = f"{user_query}__CTX__{str(context_filter)}"
-                    
+
                 cached = self.cache.get(cache_key)
                 if cached:
                     cached_results = cached.get("metadata", {}).get("results")
@@ -254,11 +291,11 @@ class AIQuerySystem:
         # Step 3: Retrieve schemas / documents
         schemas, docs, schema_context = [], [], ""
         if route in ["sql", "both"]:
-            schemas = self.tag.retrieve_schemas(user_query, top_k=3)
-            schema_context = "\n\n".join([s.to_document() for s in schemas])
+            schemas = self.tag.retrieve_schemas(user_query, top_k=2)  # reduce from 3 to 2
+            schema_context = "\n\n".join([s.to_document()[:800] for s in schemas])  # cap each schema at 800 chars            i
             self.logger.info(f"[TAG] Retrieved schemas: {[s.table_name for s in schemas]}")
         if route in ["rag", "both"]:
-            docs = self.tag.retrieve_documents(user_query, top_k=5, where_filter=context_filter)
+            docs = self.tag.retrieve_documents(user_query, top_k=5)
             self.logger.info(f"[TAG] Retrieved {len(docs)} documents")
 
         # Steps 4 & 5: Generate SQL and execute

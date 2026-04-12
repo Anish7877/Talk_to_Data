@@ -49,39 +49,17 @@ class SQLResult:
 
 DANGEROUS_KEYWORDS = ["DROP", "DELETE", "INSERT", "UPDATE", "ALTER", "TRUNCATE", "CREATE", "GRANT", "REVOKE"]
 
-PLANNER_PROMPT = """You are a database expert. Given a user's question and schema information,
-create a step-by-step plan for retrieving the requested data.
+PLANNER_PROMPT = """Database expert. Given the question and schema, write a SHORT numbered plan (3 steps max) for the SQL query. No SQL yet.
 
-Rules:
-- Think about which tables are needed
-- Determine the join conditions if multiple tables are required
-- Consider any filtering or aggregation needed
-- Write the plan as numbered steps in plain English
-- Do NOT write any SQL code - just reasoning steps
+Question: {user_query}
+Schema: {schema_context}
+Plan:"""
 
-User Question: {user_query}
+CODER_PROMPT = """SQL expert. Write ONE raw PostgreSQL query only. No explanation, no markdown.
 
-Schema Information:
-{schema_context}
-
-Output your plan as a numbered list."""
-
-CODER_PROMPT = """You are a SQL expert. Given a plan and schema information,
-write the correct SQL query.
-
-Rules:
-- Write ONLY the raw SQL query, no explanations, no markdown, no code blocks
-- Use the exact table and column names from the schema
-- Use PostgreSQL dialect
-- Ensure proper JOIN syntax
-
-Plan:
-{plan}
-
-Schema Information:
-{schema_context}
-
-Output only the raw SQL query, nothing else."""
+Plan: {plan}
+Schema: {schema_context}
+SQL:"""
 
 
 class MultiAgentSQLEngine:
@@ -171,6 +149,9 @@ class MultiAgentSQLEngine:
             "parameterized_query": "",
             "params": []
         }
+        MAX_SCHEMA_CHARS = 2000
+        if len(schema_context) > MAX_SCHEMA_CHARS:
+            schema_context = schema_context[:MAX_SCHEMA_CHARS] + "\n... (truncated)"
 
         state = self.planner_node(state)
 

@@ -11,6 +11,8 @@ db_port: 5432
 db_name: "postgres"
 db_user: "ai_readonly"
 db_password: "1234"
+admin_db_user: postgres
+admin_db_password: secret
 
 # ChromaDB
 chroma_persist_dir: "./data/chroma_db"
@@ -26,16 +28,16 @@ intent_router:
   temperature: 0.0
 
 multi_agent_sql:
-  planner_model:   "llama-3.3-70b-versatile"
-  coder_model:     "llama-3.3-70b-versatile"
+  planner_model:   "llama-3.1-8b-instant"
+  coder_model:     "llama-3.1-8b-instant"
   validator_model: "llama-3.1-8b-instant"
   temperature: 0.0
-  max_retries: 3
+  max_retries: 2
 
 storyteller:
-  model: "llama-3.3-70b-versatile"
+  model: "llama-3.1-8b-instant"
   temperature: 0.3
-  max_sentences: 3
+  max_sentences: 2
 
 logging:
   lineage_log_path: "./data/lineage_logs.jsonl"

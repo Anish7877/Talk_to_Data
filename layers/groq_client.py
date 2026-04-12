@@ -33,13 +33,16 @@ class GroqClient:
         model: str = None,
         messages: List[Dict[str, str]] = None,
         temperature: float = 0.0,
-        max_tokens: int = 1024,
+        max_tokens: int = 512,
         response_format: Dict[str, str] = None,
         **kwargs
     ) -> Dict[str, Any]:
+        import time
+
         if messages is None:
             messages = []
         model = model or self.default_model
+
         payload = {
             "model": model,
             "messages": messages,
@@ -50,15 +53,33 @@ class GroqClient:
             payload["response_format"] = response_format
         payload.update(kwargs)
 
-        response = requests.post(
-            f"{self.base_url}/chat/completions",
-            headers=self._get_headers(),
-            json=payload,
-            timeout=60
-        )
-        if response.status_code != 200:
-            raise Exception(f"Groq API error {response.status_code}: {response.text}")
-        return response.json()
+        MAX_RETRIES = 5
+        for attempt in range(MAX_RETRIES):
+            response = requests.post(
+                f"{self.base_url}/chat/completions",
+                headers=self._get_headers(),
+                json=payload,
+                timeout=60
+            )
+
+            if response.status_code == 429:
+                wait = 2 ** attempt
+                try:
+                    msg = response.json()["error"]["message"]
+                    if "try again in" in msg:
+                        wait = float(msg.split("try again in")[1].split("s")[0].strip()) + 0.5
+                except Exception:
+                    pass
+                print(f"[GROQ] Rate limit hit — waiting {wait:.1f}s (attempt {attempt+1}/{MAX_RETRIES})")
+                time.sleep(wait)
+                continue
+
+            if response.status_code != 200:
+                raise Exception(f"Groq API error {response.status_code}: {response.text}")
+
+            return response.json()
+
+        raise Exception(f"Rate limit exceeded after {MAX_RETRIES} retries. Wait a moment and try again.")
 
     def create(self, model=None, messages=None, temperature=0.0, max_tokens=1024, **kwargs):
         return self.chat_completions_create(

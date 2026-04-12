@@ -14,6 +14,9 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from main_pipeline import AIQuerySystem
 from layers.layer6_storyteller import QueryResponse, LineageTrace
+from document_processor import classify_file
+import tempfile
+import os
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -59,7 +62,7 @@ CHAT_HISTORY_FILE = "./data/chat_history.json"
 #                         ser_msg["lineage"] = msg["lineage"]
 #                 serializable_messages.append(ser_msg)
 #             serializable_sessions[session_id] = serializable_messages
-            
+
 #         with open(CHAT_HISTORY_FILE, "w") as f:
 #             json.dump({
 #                 "chat_sessions": serializable_sessions,
@@ -74,10 +77,10 @@ CHAT_HISTORY_FILE = "./data/chat_history.json"
 #         try:
 #             with open(CHAT_HISTORY_FILE, "r") as f:
 #                 data = json.load(f)
-                
+
 #             sessions = data.get("chat_sessions", {})
 #             st.session_state.session_counter = data.get("session_counter", 1)
-            
+
 #             # Rehydrate LineageTrace Dataclasses!
 #             for session_id, messages in sessions.items():
 #                 for msg in messages:
@@ -86,7 +89,7 @@ CHAT_HISTORY_FILE = "./data/chat_history.json"
 #                             valid_keys = LineageTrace.__dataclass_fields__.keys()
 #                             clean_kwargs = {k: v for k, v in msg["lineage"].items() if k in valid_keys}
 #                             msg["lineage"] = LineageTrace(**clean_kwargs)
-                            
+
 #             st.session_state.chat_sessions = sessions
 #             if sessions:
 #                 st.session_state.current_session_id = list(sessions.keys())[-1]
@@ -121,11 +124,11 @@ def save_chat_sessions():
         serializable_sessions = {}
         for session_id, messages in st.session_state.chat_sessions.items():
             serializable_messages = []
-            
+
             for msg in messages:
                 ser_msg = {"role": msg["role"], "content": msg["content"]}
-                
-                if "feedback" in msg: 
+
+                if "feedback" in msg:
                     ser_msg["feedback"] = msg["feedback"]
 
                 # 2. PRUNE HEAVY DATA: Do NOT save raw_docs to MongoDB
@@ -139,7 +142,7 @@ def save_chat_sessions():
                         lin_dict = lin.to_dict()
                     else:
                         lin_dict = lin
-                    
+
                     # Only keep the small, vital stats
                     ser_msg["lineage"] = {
                         "query": lin_dict.get("query", ""),
@@ -151,7 +154,7 @@ def save_chat_sessions():
 
                 serializable_messages.append(ser_msg)
             serializable_sessions[session_id] = serializable_messages
-            
+
         # Upsert into MongoDB
         chats_collection.update_one(
             {"email": user_email},
@@ -176,7 +179,7 @@ def load_chat_sessions():
         if user_data and "chat_sessions" in user_data:
             sessions = user_data["chat_sessions"]
             st.session_state.session_counter = user_data.get("session_counter", 1)
-            
+
             # Rehydrate truncated LineageTrace Dataclasses
             for session_id, messages in sessions.items():
                 for msg in messages:
@@ -194,7 +197,7 @@ def load_chat_sessions():
                             execution_time_ms=lin_data.get("execution_time_ms", 0),
                             timestamp=""
                         )
-                            
+
             st.session_state.chat_sessions = sessions
             if sessions:
                 st.session_state.current_session_id = list(sessions.keys())[-1]
@@ -202,7 +205,7 @@ def load_chat_sessions():
                 _reset_local_session()
         else:
             _reset_local_session()
-            
+
     except Exception as e:
         st.error(f"Failed to load chat sessions: {e}")
         _reset_local_session()
@@ -214,126 +217,114 @@ def _reset_local_session():
     st.session_state.session_counter = 1
 
 def inject_custom_css():
-    """Inject premium CSS — Gemini-inspired light grey with crisp white on slate accents."""
     st.markdown("""
         <style>
-        /* FONT IMPORTS */
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
 
-        /* ANIMATIONS */
         @keyframes fadeInUp {
-            from { opacity: 0; transform: translateY(14px); }
+            from { opacity: 0; transform: translateY(12px); }
             to   { opacity: 1; transform: translateY(0); }
         }
         @keyframes shimmer {
             0%   { background-position: -200% 0; }
-            100% { background-position: 200% 0; }
+            100% { background-position:  200% 0; }
         }
 
-        /* No elements hidden — everything visible */
-
-        /* GLOBAL — Gemini light grey */
+        /* ── GLOBAL ── */
         .stApp {
-            background: #f0f4f9 !important;
-            color: #1f2937 !important;
+            background: #f8fafc !important;
+            color: #0f172a !important;
         }
-        .stApp p, .stApp label, .stMarkdown p, .stTextInput label,
-        .stTextArea label, h1, h2, h3, h4, h5, h6 {
+        .stApp p, .stApp label, .stMarkdown p,
+        .stTextInput label, .stTextArea label,
+        h1, h2, h3, h4, h5, h6 {
             font-family: 'Inter', system-ui, sans-serif !important;
         }
 
-        /* MAIN CONTAINER */
+        /* ── LAYOUT ── */
         .block-container {
-            padding-top: 2rem !important;
-            padding-bottom: 2rem !important;
-            max-width: 920px !important;
+            padding-top: 1.5rem !important;
+            padding-bottom: 4rem !important;
+            max-width: 860px !important;
         }
 
-        /* TITLE — slate gradient */
+        /* ── TITLE ── */
         h1 {
+            font-size: 1.6rem !important;
             font-weight: 700 !important;
-            letter-spacing: -0.5px;
-            background: linear-gradient(135deg, #1e293b, #334155, #475569) !important;
+            letter-spacing: -0.6px !important;
+            background: linear-gradient(135deg, #0f172a 0%, #334155 60%, #64748b 100%) !important;
             -webkit-background-clip: text !important;
             -webkit-text-fill-color: transparent !important;
             background-clip: text !important;
             text-align: center !important;
-            margin-bottom: 0px !important;
+            margin-bottom: 0 !important;
         }
 
-        /* SUB-HEADERS */
-        h2, h3, h4 {
-            color: #1e293b !important;
-            font-weight: 600 !important;
-        }
-
-        /* SUBTITLE */
+        /* ── SUBTITLE ── */
         .subtitle {
-            font-size: 1.05rem;
+            font-size: 0.82rem;
             font-weight: 400;
-            color: #64748b;
+            color: #94a3b8;
             text-align: center;
-            margin-bottom: 2rem;
-            letter-spacing: 0.3px;
+            margin-bottom: 1.5rem;
+            letter-spacing: 0.8px;
+            text-transform: uppercase;
         }
 
-        /* SIDEBAR — slightly darker grey */
+        /* ── SIDEBAR ── */
         [data-testid="stSidebar"] {
-            background: #e8ecf1 !important;
-            border-right: 1px solid #d1d5db !important;
+            background: #f1f5f9 !important;
+            border-right: 1px solid #e2e8f0 !important;
         }
-        [data-testid="stSidebar"] h1, [data-testid="stSidebar"] h2,
-        [data-testid="stSidebar"] h3, [data-testid="stSidebar"] header {
-            color: #1e293b !important;
-            -webkit-text-fill-color: #1e293b !important;
+        [data-testid="stSidebar"] h1,
+        [data-testid="stSidebar"] h2,
+        [data-testid="stSidebar"] h3,
+        [data-testid="stSidebar"] header {
+            color: #0f172a !important;
+            -webkit-text-fill-color: #0f172a !important;
             background: none !important;
         }
-        [data-testid="stSidebar"] p, [data-testid="stSidebar"] label {
+        [data-testid="stSidebar"] p,
+        [data-testid="stSidebar"] label {
             color: #475569 !important;
+            font-size: 0.85rem !important;
         }
 
-        /* Sidebar session buttons */
+        /* sidebar session buttons */
         [data-testid="stSidebar"] button[kind="tertiary"] {
-            justify-content: flex-start;
-            padding: 0.5rem 0.6rem;
-            font-weight: 400;
-            font-size: 0.88rem;
+            justify-content: flex-start !important;
+            padding: 0.45rem 0.6rem !important;
+            font-size: 0.84rem !important;
             color: #475569 !important;
-            border-radius: 8px;
-            transition: all 0.25s cubic-bezier(.4,0,.2,1);
+            border-radius: 8px !important;
+            transition: all 0.2s ease !important;
+            border: none !important;
         }
         [data-testid="stSidebar"] button[kind="tertiary"]:hover {
-            color: #1e293b !important;
-            background-color: rgba(30,41,59,0.08) !important;
-            transform: translateX(3px);
+            color: #0f172a !important;
+            background: rgba(15,23,42,0.07) !important;
+            transform: translateX(2px) !important;
         }
 
-        /* Sidebar primary button — slate with white text */
+        /* sidebar primary button */
         [data-testid="stSidebar"] button[kind="primary"],
         [data-testid="stSidebar"] button[kind="primary"] p,
         [data-testid="stSidebar"] button[kind="primary"] span {
-            background: #1e293b !important;
+            background: #0f172a !important;
             border: none !important;
-            color: #ffffff !important;
-            -webkit-text-fill-color: #ffffff !important;
+            color: #f8fafc !important;
+            -webkit-text-fill-color: #f8fafc !important;
             font-weight: 600 !important;
             border-radius: 10px !important;
-            transition: background 0.3s ease, box-shadow 0.3s ease !important;
+            font-size: 0.88rem !important;
         }
-        /* Hover only changes the button background, no text decoration */
         [data-testid="stSidebar"] button[kind="primary"]:hover {
-            background: #334155 !important;
-            box-shadow: 0 4px 16px rgba(30,41,59,0.25) !important;
-            text-decoration: none !important;
-        }
-        [data-testid="stSidebar"] button[kind="primary"]:hover p,
-        [data-testid="stSidebar"] button[kind="primary"]:hover span {
-            text-decoration: none !important;
-            color: #ffffff !important;
-            -webkit-text-fill-color: #ffffff !important;
+            background: #1e293b !important;
+            box-shadow: 0 4px 12px rgba(15,23,42,0.2) !important;
         }
 
-        /* Sidebar toggle — replace arrow with hamburger icon */
+        /* hamburger toggle */
         [data-testid="stSidebarCollapsedControl"] svg,
         [data-testid="stSidebar"] button[data-testid="stBaseButton-headerNoPadding"] svg {
             display: none !important;
@@ -341,175 +332,184 @@ def inject_custom_css():
         [data-testid="stSidebarCollapsedControl"] button::before,
         [data-testid="stSidebar"] button[data-testid="stBaseButton-headerNoPadding"]::before {
             content: "☰";
-            font-size: 1.3rem;
-            color: #1e293b;
-            line-height: 1;
+            font-size: 1.2rem;
+            color: #334155;
         }
 
-        /* CHAT BUBBLES — clean white cards */
+        /* ── CHAT BUBBLES ── */
         [data-testid="stChatMessage"] {
             background: #ffffff !important;
             border: 1px solid #e2e8f0 !important;
-            border-radius: 14px !important;
-            padding: 1rem 1.2rem !important;
-            margin-bottom: 0.75rem !important;
-            animation: fadeInUp 0.35s ease-out !important;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.04) !important;
-            transition: box-shadow 0.3s ease !important;
+            border-radius: 16px !important;
+            padding: 1rem 1.25rem !important;
+            margin-bottom: 0.6rem !important;
+            animation: fadeInUp 0.3s ease-out !important;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.04) !important;
+            transition: box-shadow 0.2s ease !important;
         }
         [data-testid="stChatMessage"]:hover {
-            box-shadow: 0 2px 8px rgba(0,0,0,0.08) !important;
+            box-shadow: 0 3px 10px rgba(0,0,0,0.07) !important;
         }
         [data-testid="stChatMessage"] p {
-            color: #1f2937 !important;
-            font-size: 0.95rem !important;
-            line-height: 1.75 !important;
-            letter-spacing: 0.1px !important;
-            font-family: 'Inter', sans-serif !important;
+            color: #1e293b !important;
+            font-size: 0.94rem !important;
+            line-height: 1.8 !important;
         }
 
-        /* METRICS */
+        /* ── METRICS ── */
         div[data-testid="stMetricValue"] {
-            font-size: 20px;
-            font-weight: 600;
-            color: #1e293b !important;
+            font-size: 18px !important;
+            font-weight: 600 !important;
+            color: #0f172a !important;
             font-family: 'JetBrains Mono', monospace !important;
         }
         div[data-testid="stMetricLabel"] {
-            color: #64748b !important;
-            font-size: 0.8rem;
-            text-transform: uppercase;
-            letter-spacing: 0.8px;
+            color: #94a3b8 !important;
+            font-size: 0.72rem !important;
+            text-transform: uppercase !important;
+            letter-spacing: 1px !important;
         }
 
-        /* BUTTONS — primary (slate with white text) */
+        /* ── BUTTONS ── */
         .stButton > button[kind="primary"] {
-            background: #1e293b !important;
+            background: #0f172a !important;
             border: none !important;
             color: #f8fafc !important;
-            font-family: 'Inter', sans-serif !important;
             font-weight: 600 !important;
             border-radius: 10px !important;
-            padding: 0.55rem 1.2rem !important;
-            transition: all 0.3s ease !important;
+            font-size: 0.88rem !important;
+            padding: 0.5rem 1.2rem !important;
+            transition: all 0.2s ease !important;
         }
         .stButton > button[kind="primary"]:hover {
+            background: #1e293b !important;
+            box-shadow: 0 4px 12px rgba(15,23,42,0.2) !important;
             transform: translateY(-1px) !important;
-            box-shadow: 0 4px 16px rgba(30,41,59,0.25) !important;
-            background: #334155 !important;
         }
-        /* BUTTONS — secondary */
         .stButton > button[kind="secondary"],
         .stButton > button:not([kind]) {
             background: #ffffff !important;
-            border: 1px solid #cbd5e1 !important;
+            border: 1px solid #e2e8f0 !important;
             color: #334155 !important;
-            font-family: 'Inter', sans-serif !important;
             border-radius: 10px !important;
-            transition: all 0.25s ease !important;
+            font-size: 0.88rem !important;
+            transition: all 0.2s ease !important;
         }
         .stButton > button[kind="secondary"]:hover,
         .stButton > button:not([kind]):hover {
-            background: #f1f5f9 !important;
             border-color: #94a3b8 !important;
+            background: #f8fafc !important;
             transform: translateY(-1px) !important;
         }
 
-        /* INPUT FIELDS */
+        /* ── INPUTS ── */
         .stTextInput input, .stTextArea textarea {
             background: #ffffff !important;
-            border: 1px solid #d1d5db !important;
-            color: #1f2937 !important;
+            border: 1px solid #e2e8f0 !important;
+            color: #0f172a !important;
             border-radius: 10px !important;
-            font-family: 'Inter', sans-serif !important;
-            transition: all 0.3s ease !important;
+            font-size: 0.9rem !important;
+            transition: border-color 0.2s ease, box-shadow 0.2s ease !important;
         }
         .stTextInput input:focus, .stTextArea textarea:focus {
-            border-color: #475569 !important;
-            box-shadow: 0 0 0 3px rgba(71,85,105,0.1) !important;
+            border-color: #334155 !important;
+            box-shadow: 0 0 0 3px rgba(51,65,85,0.08) !important;
         }
         .stTextInput label, .stTextArea label {
             color: #475569 !important;
+            font-size: 0.85rem !important;
             font-weight: 500 !important;
         }
 
-        /* CHAT INPUT BAR */
+        /* ── CHAT INPUT ── */
         [data-testid="stChatInput"] {
             background: #ffffff !important;
-            border: 1px solid #d1d5db !important;
+            border: 1px solid #e2e8f0 !important;
             border-radius: 14px !important;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.05) !important;
+        }
+        [data-testid="stChatInput"]:focus-within {
+            border-color: #334155 !important;
+            box-shadow: 0 0 0 3px rgba(51,65,85,0.08) !important;
         }
         [data-testid="stChatInput"] textarea {
-            color: #1f2937 !important;
-            font-family: 'Inter', sans-serif !important;
+            color: #0f172a !important;
+            font-size: 0.93rem !important;
         }
 
-        /* EXPANDER */
+        /* ── EXPANDER ── */
         .streamlit-expanderHeader {
             background: #f8fafc !important;
             border-radius: 10px !important;
             color: #475569 !important;
-            font-family: 'Inter', sans-serif !important;
+            font-size: 0.85rem !important;
             font-weight: 500 !important;
-            transition: all 0.25s ease !important;
+            transition: all 0.2s ease !important;
         }
         .streamlit-expanderHeader:hover {
-            color: #1e293b !important;
+            color: #0f172a !important;
             background: #f1f5f9 !important;
         }
 
-        /* CODE BLOCKS */
+        /* ── CODE ── */
         code, .stCode, pre {
-            font-family: 'JetBrains Mono', 'Fira Code', monospace !important;
+            font-family: 'JetBrains Mono', monospace !important;
             background: #f8fafc !important;
             border: 1px solid #e2e8f0 !important;
             border-radius: 8px !important;
-            color: #334155 !important;
-        }
-
-        /* TABS */
-        .stTabs [data-baseweb="tab"] {
-            font-family: 'Inter', sans-serif !important;
-            color: #64748b !important;
-            font-weight: 500 !important;
-        }
-        .stTabs [aria-selected="true"] {
+            font-size: 0.82rem !important;
             color: #1e293b !important;
         }
+
+        /* ── TABS ── */
+        .stTabs [data-baseweb="tab"] {
+            font-size: 0.83rem !important;
+            font-weight: 500 !important;
+            color: #64748b !important;
+            padding: 0.4rem 0.8rem !important;
+        }
+        .stTabs [aria-selected="true"] {
+            color: #0f172a !important;
+        }
         .stTabs [data-baseweb="tab-highlight"] {
-            background-color: #1e293b !important;
+            background: #0f172a !important;
+            height: 2px !important;
+        }
+        .stTabs [data-baseweb="tab-border"] {
+            background: #e2e8f0 !important;
         }
 
-        /* ALERTS */
+        /* ── ALERTS ── */
         .stAlert {
             border-radius: 10px !important;
-            font-family: 'Inter', sans-serif !important;
+            font-size: 0.88rem !important;
+            border-width: 1px !important;
         }
 
-        /* POPOVER */
-        [data-testid="stPopover"] { padding-top: 1px; }
-        [data-testid="stPopover"] summary > svg:last-of-type { display: none !important; }
-        [data-testid="stPopover"] summary { list-style: none !important; }
-        [data-testid="stPopover"] summary::-webkit-details-marker { display: none !important; }
-
-        /* SCROLLBAR */
-        ::-webkit-scrollbar { width: 6px; height: 6px; }
-        ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
-        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
-
-        /* FILE UPLOADER */
+        /* ── FILE UPLOADER ── */
         [data-testid="stFileUploader"] section {
-            border: 1px dashed #cbd5e1 !important;
-            border-radius: 10px !important;
-            background: #ffffff !important;
+            border: 1.5px dashed #cbd5e1 !important;
+            border-radius: 12px !important;
+            background: #f8fafc !important;
+            transition: border-color 0.2s ease !important;
+        }
+        [data-testid="stFileUploader"] section:hover {
+            border-color: #94a3b8 !important;
         }
 
-        /* DIVIDER */
-        hr { border-color: #e2e8f0 !important; }
+        /* ── MISC ── */
+        hr { border-color: #e2e8f0 !important; margin: 0.75rem 0 !important; }
+        ::-webkit-scrollbar { width: 5px; height: 5px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        .stMultiSelect, .stSelectbox { font-size: 0.88rem !important; }
+        [data-testid="stPopover"] summary > svg:last-of-type { display: none !important; }
 
-        /* MULTISELECT */
-        .stMultiSelect, .stSelectbox { font-family: 'Inter', sans-serif !important; }
+        /* ── WELCOME SCREEN CARDS ── */
+        [data-testid="stVerticalBlock"] [data-testid="stVerticalBlock"] div[data-testid="stHorizontalBlock"] > div {
+            transition: transform 0.2s ease !important;
+        }
         </style>
     """, unsafe_allow_html=True)
 
@@ -518,54 +518,6 @@ def chunk_text(text: str, chunk_size: int = 300) -> list:
     """Split text efficiently into token-safe chunks for optimized vector embedding."""
     words = text.split()
     return [' '.join(words[i:i+chunk_size]) for i in range(0, len(words), chunk_size)]
-
-
-def parse_and_add_documents(uploaded_files):
-    """Parse CSV, PDF, and JSON chunks cleanly into the vector-store context with chunking optimization."""
-    import json
-    try:
-        import pandas as pd
-        from pypdf import PdfReader
-    except ImportError:
-        st.error("Missing dependencies. Backend needs to have installed: pypdf pandas")
-        return
-
-    sys_engine = st.session_state.query_system
-    if not sys_engine:
-        st.error("System offline")
-        return
-        
-    for file in uploaded_files:
-        content = ""
-        try:
-            if file.name.endswith(".pdf"):
-                reader = PdfReader(file)
-                for page in reader.pages:
-                    text = page.extract_text()
-                    if text:
-                        content += text + "\n"
-            elif file.name.endswith(".csv"):
-                df = pd.read_csv(file)
-                # Cap the CSV read to reasonable limits just in case it's millions of rows, but convert all safe rows to string structure
-                content = f"CSV Filename: {file.name}\n" + df.head(1000).to_string()
-            elif file.name.endswith(".json"):
-                data = json.load(file)
-                content = json.dumps(data, indent=2)
-            else:
-                content = file.getvalue().decode('utf-8')
-                
-            if content.strip():
-                metadata = {"session_id": st.session_state.current_session_id}
-                
-                # OPTIMIZED SAVING: Chunk large data so the context window safely parses it without truncation loss
-                chunks = chunk_text(content)
-                for i, chunk in enumerate(chunks):
-                    chunk_id = f"{file.name}_chunk_{i}"
-                    sys_engine.tag.add_document(doc_id=chunk_id, content=chunk, metadata=metadata)
-                    
-                st.toast(f"Optimized strictly into {len(chunks)} contextual chunks!", icon=":material/check_circle:")
-        except Exception as e:
-            st.error(f"Failed to process {file.name}: {str(e)}")
 
 
 def render_loading_screen():
@@ -627,14 +579,14 @@ def initialize_session_state():
             st.error(f"Initialization failed: {str(e)}")
             st.session_state.query_system = None
         loading_placeholder.empty()
-                
+
     if "authenticated" not in st.session_state:
         st.session_state.authenticated = False
 
     if "chat_sessions" not in st.session_state:
         load_chat_sessions()
         st.session_state.active_filters = [st.session_state.current_session_id]
-        
+
     st.session_state.messages = st.session_state.chat_sessions[st.session_state.current_session_id]
 
 
@@ -644,7 +596,7 @@ def display_lineage(lineage):
 
     with st.expander("Developer Trace & SQL Details", icon=":material/data_object:", expanded=False):
         tab1, tab2, tab3, tab4 = st.tabs(["Overview", "SQL Executed", "RAG Sources", "Raw JSON"])
-        
+
         with tab1:
             colA, colB, colC = st.columns(3)
             with colA:
@@ -654,25 +606,103 @@ def display_lineage(lineage):
                 st.metric("Cache Status", cache_status)
             with colC:
                 st.metric("Execution Time", f"{lineage.execution_time_ms:.0f} ms")
-                
+
             if lineage.cache_similarity:
                 st.info(f"Query was resolved from semantic cache with {lineage.cache_similarity:.1%} confidence.", icon=":material/bolt:")
-                
+
         with tab2:
             if lineage.sql_run:
                 st.markdown("**Generated SQL:**")
                 st.code(lineage.sql_run, language="sql")
             else:
                 st.info("No SQL executed for this query.", icon=":material/info:")
-                
+
         with tab3:
             st.markdown("### Retrieved Context")
             st.write(f"- **Tables Used:** {', '.join(lineage.tables_used) or 'None'}")
             st.write(f"- **Schemas Retrieved:** {', '.join(lineage.schemas_retrieved) or 'None'}")
             st.write(f"- **Documents Retrieved:** {', '.join(lineage.documents_retrieved) or 'None'}")
-            
+
         with tab4:
             st.json(json.loads(lineage.to_json()))
+
+def parse_and_add_documents(uploaded_files):
+    """
+    Process uploaded files through DocumentProcessor.
+    Structured files (CSV/JSON/Excel) → TAG schema + Postgres
+    Unstructured files (PDF/TXT/DOCX/MD) → ChromaDB RAG
+    """
+    if not st.session_state.query_system:
+        st.error("System not initialized.", icon=":material/error:")
+        return
+
+    system = st.session_state.query_system
+
+    results = {"structured": [], "unstructured": [], "failed": []}
+
+    for uploaded_file in uploaded_files:
+        # Save the uploaded file to a temp path so DocumentProcessor can read it
+        suffix = Path(uploaded_file.name).suffix
+        with tempfile.NamedTemporaryFile(
+            delete=False, suffix=suffix, prefix=Path(uploaded_file.name).stem + "_"
+        ) as tmp:
+            tmp.write(uploaded_file.getbuffer())
+            tmp_path = tmp.name
+
+        try:
+            result = system.upload_file(tmp_path)
+
+            # Rename result file_name back to the original uploaded name for display
+            result["file_name"] = uploaded_file.name
+
+            if result["success"]:
+                if result["file_type"] == "structured":
+                    results["structured"].append(result)
+                else:
+                    results["unstructured"].append(result)
+            else:
+                results["failed"].append(result)
+        finally:
+            # Always clean up the temp file
+            try:
+                os.unlink(tmp_path)
+            except Exception:
+                pass
+
+    total = len(uploaded_files)
+    success_count = len(results["structured"]) + len(results["unstructured"])
+
+    if success_count == total:
+        st.toast(f"Successfully ingested {total} file(s)", icon=":material/check_circle:")
+    elif success_count > 0:
+        st.toast(f"{success_count}/{total} files ingested", icon=":material/warning:")
+    else:
+        st.toast("All files failed to ingest", icon=":material/error:")
+
+    # Structured files
+    for r in results["structured"]:
+        st.success(
+            f"**{r['file_name']}** → Structured data loaded\n\n"
+            f"Table: `{r['table_name']}` · {r['row_count']} rows · "
+            f"Columns: {', '.join(r['columns'][:5])}{'...' if len(r['columns']) > 5 else ''}\n\n"
+            f"{'Written to database' if r.get('db_written') else 'Schema registered (no DB write — set admin credentials)'}",
+            icon=":material/table:"
+        )
+
+    # Unstructured files
+    for r in results["unstructured"]:
+        st.success(
+            f"**{r['file_name']}** → Added to knowledge base\n\n"
+            f"{r['chunk_count']} chunks · {r['char_count']:,} characters extracted",
+            icon=":material/description:"
+        )
+
+    # Failed files
+    for r in results["failed"]:
+        st.error(
+            f"**{r['file_name']}** failed: {r['message']}",
+            icon=":material/error:"
+        )
 
 
 def render_sidebar():
@@ -680,16 +710,24 @@ def render_sidebar():
     with st.sidebar:
         # Product branding at top
         st.markdown("""
-            <div style="
-                display: flex; align-items: center; gap: 0.5rem;
-                padding: 0.2rem 0 0.8rem 0;
-                border-bottom: 1px solid #d1d5db;
-                margin-bottom: 1rem;
-            ">
-                <span style="font-family: 'Inter', sans-serif; font-weight: 700; font-size: 1.1rem; color: #1e293b; letter-spacing: -0.3px;">Nexus Intelligence</span>
+            <div style="padding:0.3rem 0 1rem 0; border-bottom:1px solid #e2e8f0; margin-bottom:1rem;">
+                <p style="font-size:0.7rem; font-weight:700; letter-spacing:2px;
+                          text-transform:uppercase; color:#94a3b8; margin:0 0 0.1rem 0;">
+                    Enterprise
+                </p>
+                <span style="font-family:'Inter',sans-serif; font-weight:700; font-size:1rem;
+                             color:#0f172a; letter-spacing:-0.3px;">
+                    Nexus Intelligence
+                </span>
             </div>
         """, unsafe_allow_html=True)
-
+        # ... rest of sidebar unchanged ...
+        st.markdown("""
+            <p style="font-size:0.7rem; font-weight:600; letter-spacing:1.5px;
+                      text-transform:uppercase; color:#94a3b8; margin:0 0 0.5rem 0.1rem;">
+                Conversations
+            </p>
+        """, unsafe_allow_html=True)
         # Top Native Button
         if st.button("New Chat", icon=":material/add:", type="primary", use_container_width=True):
             st.session_state.session_counter += 1
@@ -701,7 +739,7 @@ def render_sidebar():
 
         st.markdown("<br>", unsafe_allow_html=True)
         st.header("Chat History")
-            
+
         # List sessions with minimal tertiary link style
         # Iterate in REVERSE order so newest is at the top
         for session_id in reversed(list(st.session_state.chat_sessions.keys())):
@@ -710,28 +748,46 @@ def render_sidebar():
             if len(session_messages) > 0 and session_messages[0]["role"] == "user":
                 title_text = session_messages[0]["content"][:25] + ("..." if len(session_messages[0]["content"]) > 25 else "")
                 title = f"{title_text}"
-                
+
             icon = ":material/chat_bubble:" if session_id == st.session_state.current_session_id else ":material/chat_bubble_outline:"
-            
+
             if st.button(title, key=f"btn_{session_id}", icon=icon, type="tertiary", use_container_width=True):
                 st.session_state.current_session_id = session_id
                 st.rerun()
 
         # Spacer to keep settings from overlapping chat list
         st.markdown("<br>" * 3, unsafe_allow_html=True)
-        
+
         # Settings pinned at bottom via CSS
         with st.expander("Settings & Resources", icon=":material/settings:", expanded=False):
             st.caption("System Resources")
             if st.session_state.query_system:
                 stats = st.session_state.query_system.get_stats()
-                
-                c1, c2 = st.columns(2)
+
+                c1, c2, c3 = st.columns(3)
                 with c1:
                     st.metric("Cache", stats['cache_stats']['total_entries'])
                 with c2:
                     st.metric("Docs", stats['tag_collections']['documents'])
-                
+                with c3:
+                    st.metric("Schemas", stats['tag_collections']['schemas'])
+
+                uploads = st.session_state.query_system.list_uploads()
+                if uploads["schemas"] or uploads["documents"]:
+                    with st.expander("Loaded Data Sources", icon=":material/database:"):
+                        if uploads["schemas"]:
+                            st.caption("SQL Tables")
+                            for s in uploads["schemas"]:
+                                st.markdown(f"- `{s}`")
+                        if uploads["documents"]:
+                            st.caption("RAG Documents")
+                            seen_files = set()
+                            for d in uploads["documents"]:
+                                fname = d.get("file_name", d["id"])
+                                if fname not in seen_files:
+                                    seen_files.add(fname)
+                                    st.markdown(f"- {fname}")
+
                 if st.button("Clear Cache", icon=":material/mop:", use_container_width=True):
                     count = st.session_state.query_system.cache.clear()
                     st.toast(f"Cleared {count} cache entries", icon=":material/check:")
@@ -739,7 +795,7 @@ def render_sidebar():
                     st.session_state.chat_sessions[st.session_state.current_session_id] = []
                     save_chat_sessions()
                     st.rerun()
-                    
+
                 # st.divider()
                 # if st.button("Logout", icon=":material/logout:", use_container_width=True):
                 #     st.session_state.authenticated = False
@@ -766,13 +822,13 @@ def render_sidebar():
 #     """, unsafe_allow_html=True)
 #     st.markdown("<h1 style='text-align: center; margin-bottom: 0px;'>Nexus Intelligence</h1>", unsafe_allow_html=True)
 #     st.markdown("<p style='text-align: center; color: #6e7681; margin-bottom: 2.5rem; font-family: Inter, sans-serif; font-size: 1rem;'>Enterprise Knowledge & Semantic RAG Engine</p>", unsafe_allow_html=True)
-    
+
 #     # To make the login box wider, we increase the middle column's ratio.
 #     col1, col2, col3 = st.columns([1, 2.0, 1])
 #     with col2:
 #         with st.container(border=True):
 #             tab1, tab2 = st.tabs(["Log In", "Sign Up"])
-            
+
 #             with tab1:
 #                 st.markdown("### Welcome Back")
 #                 st.caption("Please authenticate to access your Nexus Data Warehouse.")
@@ -783,7 +839,7 @@ def render_sidebar():
 #                     # Dummy logic - immediately pass through
 #                     st.session_state.authenticated = True
 #                     st.rerun()
-                    
+
 #             with tab2:
 #                 st.markdown("### Create Account")
 #                 st.caption("Your data remains isolated under Enterprise standards.")
@@ -806,12 +862,12 @@ def render_auth_screen():
     """, unsafe_allow_html=True)
     st.markdown("<h1 style='text-align: center; margin-bottom: 0px;'>Nexus Intelligence</h1>", unsafe_allow_html=True)
     st.markdown("<p style='text-align: center; color: #6e7681; margin-bottom: 2.5rem; font-family: Inter, sans-serif; font-size: 1rem;'>Enterprise Knowledge & Semantic RAG Engine</p>", unsafe_allow_html=True)
-    
+
     col1, col2, col3 = st.columns([1, 2.0, 1])
     with col2:
         with st.container(border=True):
             tab1, tab2 = st.tabs(["Log In", "Sign Up"])
-            
+
             with tab1:
                 st.markdown("### Welcome Back")
                 st.caption("Please authenticate to access your Nexus Data Warehouse.")
@@ -827,11 +883,11 @@ def render_auth_screen():
                             st.session_state.authenticated = True
                             st.session_state.user_email = login_email
                             st.session_state.user_name = user.get("name", "User")
-                            load_chat_sessions() 
+                            load_chat_sessions()
                             st.rerun()
                         else:
                             st.error("Invalid email or password.")
-                    
+
             with tab2:
                 st.markdown("### Create Account")
                 st.caption("Your data remains isolated under Enterprise standards.")
@@ -857,71 +913,73 @@ def render_auth_screen():
                         st.session_state.authenticated = True
                         st.session_state.user_email = signup_email
                         st.session_state.user_name = signup_name
-                        load_chat_sessions() 
+                        load_chat_sessions()
                         st.rerun()
 
 def render_welcome_screen():
-    """Render exactly like the Google Gemini welcome screen with contextual ideas."""
-    st.markdown("""
-        <div style="text-align: center; margin-top: 3rem; animation: fadeInUp 0.5s ease-out;">
-            <h2 style="font-size: 1.8rem; font-weight: 600; background: linear-gradient(135deg, #c9d1d9, #2dd4bf); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 0.4rem;">Hello. How can I help you today?</h2>
-            <p style="color: #6e7681; font-size: 0.92rem; font-family: 'Inter', sans-serif;">Ask me anything about your data, or try one of the suggestions below.</p>
+    user_name = st.session_state.get("user_name", "")
+    greeting = f"Hello, {user_name.split()[0]}." if user_name else "Hello."
+
+    st.markdown(f"""
+        <div style="text-align:center; margin-top:3.5rem; margin-bottom:2rem; animation: fadeInUp 0.5s ease-out;">
+            <p style="font-size:0.75rem; font-weight:600; letter-spacing:2px; text-transform:uppercase;
+                      color:#94a3b8; margin-bottom:0.5rem;">Nexus Intelligence</p>
+            <h2 style="font-size:2rem; font-weight:700; color:#0f172a;
+                       letter-spacing:-0.5px; margin-bottom:0.5rem;">{greeting}</h2>
+            <p style="color:#94a3b8; font-size:0.9rem;">
+                Ask anything about your data — structured or unstructured.
+            </p>
         </div>
     """, unsafe_allow_html=True)
-    st.write("<br>", unsafe_allow_html=True)
-    
-    st.markdown("<h4 style='font-size: 0.85rem; text-transform: uppercase; letter-spacing: 1.2px; color: #6e7681 !important; -webkit-text-fill-color: #6e7681 !important; background: none !important; font-weight: 600;'>Quick actions & ideas from your context</h4>", unsafe_allow_html=True)
-    col1, col2, col3 = st.columns(3)
-    
-    # Base examples just in case there is no history yet!
+
     examples = [
-        ("Sample: Customer Insights", "How many customers do we have?"),
-        ("Sample: Financial Overview", "What is the total generated revenue?"),
-        ("Sample: Operations Update", "Show me the 5 most recent orders")
+        ("Customer Insights",   ":material/people:",      "How many customers do we have?"),
+        ("Financial Overview",  ":material/payments:",    "What is the total generated revenue?"),
+        ("Operations Update",   ":material/inventory_2:", "Show me the 5 most recent orders"),
     ]
-    
-    # Intelligently grab multiple old contextual queries from user history
-    recent_searches = []
-    seen = set()
-    # Iterate dynamically to pull out unique questions
+
+    recent_searches, seen = [], set()
+    base_queries = {e[2] for e in examples}
     for s_id, msgs in reversed(st.session_state.chat_sessions.items()):
         for m in reversed(msgs):
-            if m["role"] == "user":
-                if m["content"] not in seen:
-                    # Ignore the base examples from polluting real history logs
-                    if m["content"] not in [e[1] for e in examples]:
-                        seen.add(m["content"])
-                        recent_searches.append((s_id, m["content"]))
-                    
-    # Map their history smartly into the Quick Action UI
+            if m["role"] == "user" and m["content"] not in seen and m["content"] not in base_queries:
+                seen.add(m["content"])
+                recent_searches.append((s_id, m["content"]))
+
     if len(recent_searches) >= 1:
-        examples[0] = (f"From {recent_searches[0][0]}", recent_searches[0][1])
+        examples[0] = (f"From {recent_searches[0][0]}", ":material/history:", recent_searches[0][1])
     if len(recent_searches) >= 2:
-        examples[1] = (f"From {recent_searches[1][0]}", recent_searches[1][1])
+        examples[1] = (f"From {recent_searches[1][0]}", ":material/history:", recent_searches[1][1])
     if len(recent_searches) >= 3:
-        examples[2] = (f"From {recent_searches[2][0]}", recent_searches[2][1])
-    
-    for (name, query), col in zip(examples, [col1, col2, col3]):
+        examples[2] = (f"From {recent_searches[2][0]}", ":material/history:", recent_searches[2][1])
+
+    col1, col2, col3 = st.columns(3)
+    for (name, icon, query), col in zip(examples, [col1, col2, col3]):
         with col:
             with st.container(border=True):
-                st.markdown(f"**{name}**")
-                
-                # Truncate string gracefully for UI appearance, but pass pure query to backend
-                display_query = f'"{query[:40]}..."' if len(query) > 40 else f'"{query}"'
-                st.caption(display_query)
-                
-                if st.button("Query", icon=":material/play_arrow:", key=f"ex_{name}", use_container_width=True):
+                st.markdown(f"""
+                    <p style="font-size:0.75rem; font-weight:600; letter-spacing:1px;
+                              text-transform:uppercase; color:#94a3b8; margin-bottom:0.2rem;">
+                        {name}
+                    </p>
+                    <p style="font-size:0.88rem; color:#334155; margin:0; line-height:1.5;">
+                        "{query[:55]}{'...' if len(query)>55 else ''}"
+                    </p>
+                """, unsafe_allow_html=True)
+                st.write("")
+                if st.button("Run query", icon=icon, key=f"ex_{name}", use_container_width=True):
                     st.session_state.messages.append({"role": "user", "content": query})
                     save_chat_sessions()
                     st.rerun()
+
 
 def main():
     """Main Streamlit application."""
     inject_custom_css()
     initialize_session_state()
-    
-  
-    
+
+
+
     # Gateway Security Intercept (UI Only Mock)
     if not st.session_state.get("authenticated", False):
         render_auth_screen()
@@ -929,7 +987,19 @@ def main():
 
     # Authorized Content Below
     st.title("Nexus Intelligence")
-    st.markdown('<p class="subtitle">Enterprise Knowledge & Semantic RAG Engine</p>', unsafe_allow_html=True)
+    st.markdown("""
+        <div style="text-align:center; padding:0.5rem 0 0.25rem 0;">
+            <p style="font-size:0.7rem; font-weight:700; letter-spacing:2.5px;
+                      text-transform:uppercase; color:#94a3b8; margin-bottom:0.3rem;">
+                Enterprise · AI-Powered
+            </p>
+            <h1>Nexus Intelligence</h1>
+            <p style="font-size:0.82rem; color:#94a3b8; margin-top:0.2rem; letter-spacing:0.5px;">
+                Natural language · Semantic search · SQL generation
+            </p>
+        </div>
+        <hr style="margin:0.75rem 0 1rem 0; border-color:#e2e8f0;">
+    """, unsafe_allow_html=True)
 
     render_sidebar()
     # Render Welcome Screen OR History
@@ -940,13 +1010,13 @@ def main():
             if message["role"] == "assistant":
                 with st.chat_message("assistant", avatar=":material/auto_awesome:"):
                     st.write(message["content"])
-                    
+
                     # Native Streamlit Thumbs Feedback
                     fb = st.feedback("thumbs", key=f"feed_{st.session_state.current_session_id}_{i}")
                     if fb is not None and message.get("feedback") != fb:
                         message["feedback"] = fb
                         save_chat_sessions()
-                    
+
                     # Surfacing Pure Text RAG Contexts explicitly so user can read/copy
                     raw_docs = message.get("raw_docs")
                     if raw_docs:
@@ -957,7 +1027,7 @@ def main():
                                 clean_id = doc_id.split('_chunk_')[0] if '_chunk_' in doc_id else doc_id
                                 st.markdown(f"**{clean_id}** (Context {idx+1})")
                                 st.info(doc.get("content", "No content snippet"), icon=":material/format_quote:")
-                    
+
                     if "lineage" in message:
                         display_lineage(message["lineage"])
             else:
@@ -965,21 +1035,27 @@ def main():
                     st.write(message["content"])
 
     st.write("")
-    
+
     prompt = None
     input_col, attach_col = st.columns([1, 15])
     with input_col:
         with st.popover("", icon=":material/attach_file:", use_container_width=True):
             st.markdown("**Knowledge & Context Management**")
             st.caption("Documents uploaded here will ONLY be readable within this specific Chat Thread to prevent confusion.")
-            
-            uploaded_files = st.file_uploader("Upload local files", accept_multiple_files=True, type=['csv', 'pdf', 'json'], label_visibility="collapsed")
+
+            uploaded_files = st.file_uploader(
+                "Upload local files",
+                accept_multiple_files=True,
+                type=['csv', 'pdf', 'json', 'xlsx', 'xls', 'txt', 'docx', 'md'],
+                label_visibility="collapsed",
+                help="Structured (CSV, Excel, JSON) → SQL queryable | Unstructured (PDF, TXT, DOCX, MD) → RAG knowledge base"
+            )
             if uploaded_files and st.button("Ingest Files", icon=":material/upload_file:", use_container_width=True):
                 with st.spinner("Processing semantics..."):
                     parse_and_add_documents(uploaded_files)
-                    
+
             st.divider()
-            
+
             st.caption("Cross-Session Context Sharing")
             all_sessions = reversed(list(st.session_state.chat_sessions.keys()))
             st.session_state.active_filters = st.multiselect(
@@ -988,7 +1064,7 @@ def main():
                 default=[st.session_state.current_session_id],
                 help="By default, AI only sees documents uploaded in the current chat. Add older sessions here to pull their documents into this chat's brain."
             )
-            
+
     with attach_col:
         prompt = st.chat_input("Enter a prompt here")
 
@@ -1000,23 +1076,23 @@ def main():
     # Engine Processing Trigger
     if len(st.session_state.messages) > 0 and st.session_state.messages[-1]["role"] == "user":
         user_prompt = st.session_state.messages[-1]["content"]
-        
+
         if st.session_state.query_system:
             with st.chat_message("assistant", avatar=":material/auto_awesome:"):
                 with st.spinner("Processing your request..."):
                     try:
                         selected_sessions = st.session_state.get("active_filters", [st.session_state.current_session_id])
                         context_filter = {"session_id": {"$in": selected_sessions}}
-                        
+
                         response = st.session_state.query_system.run_pipeline(
-                            user_query=user_prompt, 
+                            user_query=user_prompt,
                             context_filter=context_filter
                         )
                         st.write(response.answer)
                         if response.lineage.cache_hit:
                             st.toast("Answered from Cache", icon=":material/bolt:")
                         display_lineage(response.lineage)
-                        
+
                         st.session_state.messages.append({
                             "role": "assistant",
                             "content": response.answer,
@@ -1026,7 +1102,7 @@ def main():
                         })
                         save_chat_sessions()
                         st.rerun()
-                        
+
                     except Exception as e:
                         st.error(f"Query generation failed: {str(e)}", icon=":material/error:")
                         st.session_state.messages.pop()

@@ -5,7 +5,6 @@ layers/__pycache__
 venv
 .env
 data
-.streamlit
 
 
 

@@ -34,24 +34,25 @@ class IntentRouter:
 
     ROUTER_PROMPT = """You are a query classifier for an AI system.
 
-Given a user query, classify it into one of three categories:
-- "sql": The query asks for structured data, metrics, counts, or data from a database
-- "rag": The query asks about documents, policies, procedures, or unstructured text
-- "both": The query requires both database data and document context
+    Given a user query, classify it into one of three categories:
+    - "sql": The query asks for structured data, metrics, counts, or numerical data from a database
+    - "rag": The query asks for explanations, definitions, concepts, documents, policies, or unstructured text
+    - "both": The query requires both database data and document context
 
-Return a JSON object with:
-- "route": The category ("sql", "rag", or "both")
-- "confidence": A number between 0 and 1
-- "reasoning": Brief explanation of the classification
+    Return a JSON object with:
+    - "route": The category ("sql", "rag", or "both")
+    - "confidence": A number between 0 and 1
+    - "reasoning": Brief explanation of the classification
 
-Examples:
-- "How many orders did we have last month?" -> sql
-- "What is our return policy?" -> rag
-- "Show me sales by region and explain our compensation policy" -> both
+    Examples:
+    - "How many orders did we have last month?" -> sql
+    - "What is our return policy?" -> rag
+    - "What is the role of setsid in linux?" -> rag
+    - "Show me sales by region and explain our compensation policy" -> both
 
-Query: {query}
+    Query: {query}
 
-Respond with JSON only."""
+    Respond with JSON only."""
 
     def __init__(self, model: str = None, temperature: float = 0.0, api_key: str = None):
         self.model = model or GROQ_MODELS["fast"]
