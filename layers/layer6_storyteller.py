@@ -1,7 +1,4 @@
-"""
-Layer 6: Storyteller & Lineage Engine
-Natural language answers with full audit trail
-"""
+""" Layer 6: Storyteller & Lineage Engine Natural language answers with full audit trail """
 
 import json
 import logging
@@ -43,60 +40,28 @@ class Storyteller:
     Includes full lineage tracing for audit purposes.
     """
 
-    STORYTELLER_PROMPT = """You are a data storyteller. Given a user's question and the results,
-provide a clear, concise natural language answer.
+    SYSTEM_PROMPT = """You are Nexus Intelligence, a strict, factual enterprise data assistant.
+    Your task is to answer the user's question using ONLY the provided SQL Results and Document Context.
 
-Rules:
-- Answer in 2-3 sentences maximum
-- Be direct and factual
-- Use the data provided, don't make assumptions
-- Format numbers appropriately
-- Don't mention SQL, tables, or technical details
-- If data is empty, say so clearly
+    ### STRICT RULES:
+    1. NO EXTERNAL KNOWLEDGE: You must absolutely NEVER use your pre-trained knowledge to answer the question.
+    2. GROUNDING: If the answer cannot be explicitly found in the SQL Results or Document Context provided below, you MUST reply with: "I do not have enough information in the current data to answer that."
+    3. NO GUESSING: Do not extrapolate, guess, or assume missing data.
+    4. FORMATTING: Be concise. If SQL data is provided, state the numbers clearly. Do not mention SQL or database tables in your final answer.
+    """
 
-User Question: {user_question}
+    USER_PROMPT = """
+    ### User Question:
+    {user_question}
 
-Data Results:
-{data_results}
+    ### SQL Results (Structured Data):
+    {sql_results}
 
-Document Context (if available):
-{doc_context}
+    ### Document Context (Unstructured Data):
+    {doc_context}
 
-Provide your answer:"""
-
-    SQL_ONLY_PROMPT = """You are a data storyteller. Given a user's question about data,
-provide a clear, concise natural language answer based on the SQL results.
-
-User Question: {user_question}
-
-SQL Results:
-{sql_results}
-
-Provide your answer in 2-3 sentences. Do not mention SQL or tables."""
-
-    RAG_ONLY_PROMPT = """You are a helpful assistant. Given a user's question and relevant document excerpts,
-provide a clear answer using the document context.
-
-User Question: {user_question}
-
-Document Excerpts:
-{doc_context}
-
-Provide a concise answer in 2-3 sentences."""
-
-    HYBRID_PROMPT = """You are a data storyteller. Given a user's question, data from the database,
-and relevant document context, provide a comprehensive answer.
-
-User Question: {user_question}
-
-Here is data from the database:
-{sql_results}
-
-Here is relevant document context:
-{doc_context}
-
-Combine both sources to provide a clear, comprehensive answer in 2-3 sentences.
-Do not mention SQL, tables, or technical details."""
+    Answer the question strictly following the rules above.
+    """
 
     def __init__(
         self,
@@ -185,47 +150,21 @@ Do not mention SQL, tables, or technical details."""
         route: str = "sql"
     ) -> str:
         """
-        Generate a natural language answer.
-
-        Args:
-            user_question: The original user question
-            sql_results: Results from SQL query
-            doc_context: Retrieved document snippets
-            route: The routing type (sql, rag, both)
-
-        Returns:
-            Natural language answer
+        Generate a natural language answer with strict hallucination guardrails.
         """
-        if route == "sql" and sql_results:
-            prompt = self.SQL_ONLY_PROMPT.format(
-                user_question=user_question,
-                sql_results=self._format_sql_results(sql_results)
-            )
-            return self._generate_answer(prompt)
+        # Format the incoming data, providing safe fallback text if empty
+        formatted_sql = self._format_sql_results(sql_results) if sql_results else "No SQL data retrieved or query failed."
+        formatted_doc = self._format_doc_context(doc_context) if doc_context else "No document context retrieved."
 
-        elif route == "rag" and doc_context:
-            prompt = self.RAG_ONLY_PROMPT.format(
-                user_question=user_question,
-                doc_context=self._format_doc_context(doc_context)
-            )
-            return self._generate_answer(prompt)
+        # Assemble the user prompt
+        prompt = self.USER_PROMPT.format(
+            user_question=user_question,
+            sql_results=formatted_sql,
+            doc_context=formatted_doc
+        )
 
-        elif route == "both" and sql_results and doc_context:
-            prompt = self.HYBRID_PROMPT.format(
-                user_question=user_question,
-                sql_results=self._format_sql_results(sql_results),
-                doc_context=self._format_doc_context(doc_context)
-            )
-            return self._generate_answer(prompt)
-
-        else:
-            # Default fallback
-            prompt = self.STORYTELLER_PROMPT.format(
-                user_question=user_question,
-                data_results=self._format_sql_results(sql_results or []),
-                doc_context=self._format_doc_context(doc_context or [])
-            )
-            return self._generate_answer(prompt)
+        # Generate the answer by explicitly passing the SYSTEM_PROMPT to the LLM
+        return self._generate_answer(prompt=prompt, system_message=self.SYSTEM_PROMPT)
 
     def log_lineage(self, trace: LineageTrace) -> bool:
         """

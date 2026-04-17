@@ -76,7 +76,6 @@ class AIQuerySystem:
             # MUST HAVE THESE IMPORTS HERE!
             import psycopg2
             from pathlib import Path
-            import os
             import time
 
             # Retry loop to wait for Docker to boot up
@@ -248,16 +247,18 @@ class AIQuerySystem:
         context_filter: Optional[Dict[str, Any]] = None,
         authorized_docs: Optional[List[str]] = None,
         target_source: Optional[str] = None
-        ) -> QueryResponse:
+    ) -> QueryResponse:
         start_time = time.time()
         self.logger.info(f"Query: {user_query}")
 
         # Step 1: Semantic Cache Check
         if self.cache:
             try:
+                import json
                 cache_key = user_query
                 if context_filter:
-                    cache_key = f"{user_query}__CTX__{str(context_filter)}"
+                    ctx_str = json.dumps(context_filter, sort_keys=True)
+                    cache_key = f"{user_query}__CTX__{ctx_str}"
 
                 cached = self.cache.get(cache_key)
                 if cached:
@@ -314,7 +315,7 @@ class AIQuerySystem:
         # Step 3: Retrieve schemas / documents
         schemas, docs, schema_context = [], [], ""
 
-        # --- SQL RETRIEVAL ---
+        # --- SQL SCHEMA RETRIEVAL (This was missing!) ---
         if route in ["sql", "both"]:
             schema_where = None
             if target_source:
@@ -328,12 +329,12 @@ class AIQuerySystem:
             schema_context = "\n\n".join([s.to_document()[:800] for s in schemas])
             self.logger.info(f"[TAG] Retrieved schemas: {[s.table_name for s in schemas]} with filter: {schema_where}")
 
-        # --- RAG RETRIEVAL ---
+        # --- RAG DOCUMENT RETRIEVAL ---
         if route in ["rag", "both"]:
             conditions = []
-
             if target_source:
-                conditions.append({"source": target_source})
+                # FIX: Match the exact metadata key used by document_processor.py
+                conditions.append({"file_name": target_source})
 
             if authorized_docs is not None:
                 if len(authorized_docs) == 0:
@@ -357,7 +358,7 @@ class AIQuerySystem:
             docs = self.tag.retrieve_documents(search_term, top_k=5, where_filter=where_filter)
             self.logger.info(f"[TAG] Retrieved {len(docs)} documents with filter: {where_filter}")
 
-        # Steps 4 & 5: Generate SQL and execute
+        # Steps 4 & 5: Generate SQL and execute (Self-Healing Loop)
         sql_results, sql_query, tables_used = None, None, []
 
         if route in ["sql", "both"] and schema_context:
@@ -365,27 +366,61 @@ class AIQuerySystem:
                 self.logger.warning("[SQL] Executor offline — skipping SQL execution. Check DB config.")
             else:
                 self.logger.info("[SQL ENGINE] Generating SQL via multi-agent pipeline...")
-                sql_result = self.sql_engine.execute(user_query, schema_context)
 
-                if sql_result.success:
-                    sql_query = sql_result.query
-                    tables_used = sql_result.tables_used
-                    self.logger.info(f"[SQL ENGINE] Generated SQL:\n{sql_query}")
-                    self.logger.info(f"[SQL ENGINE] Tables used: {tables_used}")
+                max_retries = 3
+                feedback_history = ""
 
-                    try:
-                        db_result = self.executor.execute(sql_query)
-                        if db_result.success:
-                            sql_results = db_result.rows
-                            self.logger.info(f"[EXECUTOR] Got {len(sql_results)} rows in {db_result.execution_time_ms:.1f}ms")
-                            if sql_results:
-                                self.logger.info(f"[EXECUTOR] Sample row: {sql_results[0]}")
-                        else:
-                            self.logger.error(f"[EXECUTOR] DB error: {db_result.error}")
-                    except Exception as e:
-                        self.logger.error(f"[EXECUTOR] Exception: {e}")
-                else:
-                    self.logger.warning(f"[SQL ENGINE] Validation failed: {sql_result.validation_errors}")
+                for attempt in range(max_retries):
+                    self.logger.info(f"[SQL ENGINE] Attempt {attempt + 1}/{max_retries}...")
+
+                    enhanced_query = user_query
+                    if feedback_history:
+                        enhanced_query += f"\n\nDO NOT repeat previous mistakes. Previous attempts failed with:\n{feedback_history}"
+
+                    sql_result = self.sql_engine.execute(enhanced_query, schema_context)
+
+                    if sql_result.success:
+                        sql_query = sql_result.query
+                        tables_used = sql_result.tables_used
+                        self.logger.info(f"[SQL ENGINE] Generated SQL:\n{sql_query}")
+
+                        try:
+                            db_result = self.executor.execute(sql_query)
+                            if db_result.success:
+                                sql_results = db_result.rows
+                                self.logger.info(f"[EXECUTOR] Got {len(sql_results)} rows in {db_result.execution_time_ms:.1f}ms")
+                                break # Success!
+                            else:
+                                self.logger.warning(f"[EXECUTOR] DB error: {db_result.error}. Retrying...")
+                                feedback_history += f"- Query: {sql_query}\n- Error: {db_result.error}\n"
+                        except Exception as e:
+                            self.logger.error(f"[EXECUTOR] Exception: {e}")
+                            break
+                    else:
+                        self.logger.warning(f"[SQL ENGINE] Validation failed: {sql_result.validation_errors}")
+                        feedback_history += f"- Validation Error: {sql_result.validation_errors}\n"
+
+                if not sql_results and feedback_history:
+                    self.logger.error("[SQL ENGINE] All retry attempts failed.")
+
+
+
+        # Step 6: Generate natural language answer
+
+        # --- 🕵️ HACKATHON DEBUG: WHAT IS THE AI ACTUALLY SEEING? ---
+        if route in ["rag", "both"]:
+            print("\n" + "!" * 50)
+            print("🕵️ X-RAY VISION: RAG DOCUMENTS RETRIEVED")
+            print("!" * 50)
+            if not docs:
+                print("❌ ERROR: 0 chunks retrieved! The ChromaDB filter failed or the PDF is empty.")
+            else:
+                for i, d in enumerate(docs):
+                    print(f"\n--- CHUNK {i+1} (Score: {d.get('distance', 'N/A')}) ---")
+                    # Print the first 400 characters of what pypdf actually extracted
+                    print(d.get('content', '')[:400])
+            print("!" * 50 + "\n")
+        # -----------------------------------------------------------
 
         # Step 6: Generate natural language answer
         self.logger.info(f"[STORYTELLER] Generating answer (sql_results={'yes' if sql_results else 'none'}, docs={len(docs)})...")
@@ -408,23 +443,13 @@ class AIQuerySystem:
             execution_time_ms=total_ms
         )
 
-        # FIX: Only cache when we have actual results
-        # ====================================================================================
-        # OLD CACHE SAVE LOGIC (PRESERVED):
-        # if self.cache and sql_results:
-        #     try:
-        #         self.cache.set(user_query, answer, metadata={"route": route, "results": sql_results})
-        #         self.logger.info(f"[CACHE] Stored answer with {len(sql_results)} rows")
-        #     except Exception as e:
-        #         self.logger.warning(f"Cache write failed: {e}")
-        # ====================================================================================
-
-        # NEW FIX: Save against isolated Cache Key and support RAG docs caching
         if self.cache and (sql_results or docs):
             try:
+                import json
                 cache_key = user_query
                 if context_filter:
-                    cache_key = f"{user_query}__CTX__{str(context_filter)}"
+                    ctx_str = json.dumps(context_filter, sort_keys=True)
+                    cache_key = f"{user_query}__CTX__{ctx_str}"
                 self.cache.set(cache_key, answer, metadata={"route": route, "results": sql_results})
                 self.logger.info(f"[CACHE] Stored locally isolated cache entry.")
             except Exception as e:
@@ -477,48 +502,107 @@ class AIQuerySystem:
 
 
 def run_demo():
+    import os
+
     print("=" * 60)
-    print("AI Query System - Demo")
+    print("AI Query System - STRICT TARGETING DEMO")
     print("=" * 60)
 
     system = AIQuerySystem(load_sample_schemas=True)
-
-    # FIX: Always clear cache at demo start so stale empty results don't block
     cleared = system.clear_cache()
     if cleared:
         print(f"\nCleared {cleared} stale cache entries")
 
-    print("\nHealth Check:")
-    for component, status in system.health_check().items():
-        print(f"  {component}: {'OK' if status else 'OFFLINE'}")
-
-    demo_queries = [
-        "How many customers do we have?",
-        "What is the total revenue?",
-        "Show me recent orders",
-        "What is the company refund policy?"
-    ]
-
+    # ==========================================
+    # STEP 1: UPLOAD FILES
+    # ==========================================
     print("\n" + "=" * 60)
-    for query in demo_queries:
-        print(f"\nQuery: {query}")
-        print("-" * 40)
+    print("STEP 1: Upload Your Documents")
+    print("=" * 60)
+
+    active_files = []
+
+    unstructured_file = input("Path to an unstructured file (e.g., ./docs/manual.pdf) [Enter to skip]: ").strip()
+    if unstructured_file and os.path.exists(unstructured_file):
+        res = system.upload_file(unstructured_file)
+        if res.get('success'):
+            active_files.append(os.path.basename(unstructured_file))
+            print(f" -> Success! Added {os.path.basename(unstructured_file)}")
+        else:
+            print(f" -> Failed: {res.get('message')}")
+
+    structured_file = input("Path to a structured file (e.g., ./data/inventory.csv) [Enter to skip]: ").strip()
+    if structured_file and os.path.exists(structured_file):
+        res = system.upload_file(structured_file)
+        if res.get('success'):
+            active_files.append(os.path.basename(structured_file))
+            print(f" -> Success! Added {os.path.basename(structured_file)}")
+        else:
+            print(f" -> Failed: {res.get('message')}")
+
+    if not active_files:
+        print("\nNo files were successfully uploaded. Exiting demo.")
+        return
+
+    # ==========================================
+    # STEP 2: FORCED INTERACTIVE LOOP
+    # ==========================================
+    print("\n" + "=" * 60)
+    print("STEP 2: Strict Querying")
+    print("=" * 60)
+
+    while True:
+        print("\nAVAILABLE FILES:")
+        for i, f in enumerate(active_files, 1):
+            print(f"[{i}] {f}")
+        print(f"[{len(active_files) + 1}] Exit Demo")
+
+        # 1. FORCE THE FILE SELECTION FIRST
+        file_choice = input("\nWhich file do you want to query? (Enter the number): ").strip()
+
+        if file_choice == str(len(active_files) + 1):
+            print("Exiting demo...")
+            break
+
         try:
-            response = system.run_pipeline(query)
-            print(f"Answer: {response.answer}")
-            print(f"Route:  {response.lineage.route}")
-            print(f"Cache:  {response.lineage.cache_hit}")
-            print(f"Tables: {response.lineage.tables_used}")
-            print(f"SQL:    {response.lineage.sql_run}")
+            choice_idx = int(file_choice) - 1
+            if choice_idx < 0 or choice_idx >= len(active_files):
+                print("Invalid number. You MUST select a valid file from the list.")
+                continue
+            target_file = active_files[choice_idx]
+        except ValueError:
+            print("Please enter a valid number.")
+            continue
+
+        # 2. ONLY ASK FOR QUERY AFTER FILE IS SECURED
+        query = input(f"\nEnter your query specifically for '{target_file}': ").strip()
+        if not query:
+            continue
+
+        # 3. EXECUTE WITH GUARANTEED CONTEXT
+        print(f"\n--- [Locking pipeline context strictly to: {target_file}] ---")
+        try:
+            # We pass ONLY the user_query and the target_source. No messy history.
+            response = system.run_pipeline(
+                user_query=query,
+                target_source=target_file
+            )
+
+            print(f"\n[Answer]: {response.answer}")
+            print(f"[Route]:  {response.lineage.route.upper()}")
+
+            if response.lineage.route == "sql" and response.lineage.sql_run:
+                print(f"[SQL]:    {response.lineage.sql_run}")
+            if response.lineage.route == "rag" and response.lineage.documents_retrieved:
+                print(f"[Docs]:   {response.lineage.documents_retrieved}")
+
         except Exception as e:
             print(f"Error: {e}")
             import traceback
             traceback.print_exc()
 
-
 if __name__ == "__main__":
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(levelname)s:%(name)s: %(message)s"
-    )
+    # Keeping logs clean so the interactive terminal isn't spammed
+    import logging
+    logging.basicConfig(level=logging.WARNING)
     run_demo()

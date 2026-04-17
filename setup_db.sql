@@ -25,4 +25,3 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO ai_readonly;
 -- Revoke dangerous privileges (defense in depth)
 REVOKE INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public FROM ai_readonly;
 REVOKE TRUNCATE ON ALL TABLES IN SCHEMA public FROM ai_readonly;
-

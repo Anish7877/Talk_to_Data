@@ -84,8 +84,11 @@ class StructuredFileLoader:
         from sqlalchemy import text
         try:
             df.to_sql(table_name, engine, if_exists=if_exists, index=False, method="multi", chunksize=500)
+
             with engine.connect() as conn:
-                conn.execute(text(f"GRANT SELECT ON TABLE {table_name} TO ai_readonly;"))
+                quoted_table = engine.dialect.identifier_preparer.quote(table_name)
+
+                conn.execute(text(f"GRANT SELECT ON TABLE {quoted_table} TO ai_readonly;"))
                 conn.commit()
             return True
         except Exception as e:
@@ -142,16 +145,28 @@ class UnstructuredFileLoader:
 
     def _load_pdf(self, file_path: str) -> str:
         try:
-            from pypdf import PdfReader
-            reader = PdfReader(file_path)
+            import pdfplumber
             pages = []
-            for page in reader.pages:
-                text = page.extract_text()
-                if text:
-                    pages.append(text)
-            return "\n\n".join(pages)
+            with pdfplumber.open(file_path) as pdf:
+                for page in pdf.pages:
+                    # x_tolerance and y_tolerance force the library to read scattered math text
+                    text = page.extract_text(x_tolerance=2, y_tolerance=3)
+                    if text:
+                        pages.append(text)
+
+            full_text = "\n\n".join(pages)
+
+            # Hackathon Safety Check
+            if len(full_text.strip()) < 200:
+                print("\nWARNING: Almost no text extracted! If this is a scanned PDF (an image), you will need OCR (pytesseract) to read it.\n")
+
+            return full_text
+
         except ImportError:
-            raise ImportError("pypdf is required for PDF support.")
+            raise ImportError("Please run: pip install pdfplumber")
+        except Exception as e:
+            logger.error(f"Failed to read PDF {file_path}: {e}")
+            return ""
 
     def _load_docx(self, file_path: str) -> str:
         try:
@@ -207,7 +222,7 @@ class DocumentProcessor:
         """Fix: properly handles original_file_name mapping"""
         file_path = str(file_path)
         file_name = original_file_name or Path(file_path).name
-        file_type = classify_file(file_name) 
+        file_type = classify_file(file_name)
 
         if file_type == "structured":
             return self._process_structured(file_path, file_name)
