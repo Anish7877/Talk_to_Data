@@ -8,6 +8,7 @@ import sys
 import json
 import os
 from pathlib import Path
+import base64
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent))
@@ -780,7 +781,7 @@ def parse_and_add_documents(uploaded_files):
             tmp_path = tmp.name
 
         try:
-            # result = system.upload_file(tmp_path, original_file_name=uploaded_file.name)
+         
             
             result = system.upload_file(
                 tmp_path,
@@ -806,7 +807,7 @@ def parse_and_add_documents(uploaded_files):
     success_count = len(results["structured"]) + len(results["unstructured"])
     total_unstructured_chunks = sum(int(r.get("chunk_count", 0)) for r in results["unstructured"])
 
-    # Update MongoDB explicitly with new documents so visibility restricts properly
+    
     user_email = st.session_state.get("user_email")
     if user_email:
         new_docs = []
@@ -1014,14 +1015,14 @@ def render_sidebar():
                 st.session_state.current_session_id = session_id
                 st.rerun()
 
-        # The CSS we added earlier forces this popover to the bottom of the screen automatically
+       
         with st.popover("Settings", icon=":material/settings:", use_container_width=True):
             
-            # Extract user data for the profile card
+           
             user_name = st.session_state.get("user_name", "User")
             user_email = st.session_state.get("user_email", "No email")
             
-            # Generate initials for the avatar (e.g. "John Doe" -> "JD")
+            
             name_parts = user_name.split()
             initials = ""
             if len(name_parts) >= 2:
@@ -1031,7 +1032,7 @@ def render_sidebar():
             else:
                 initials = "U"
                 
-            # Render the beautiful custom profile card with a SOLID gray background
+           
             profile_html = f"""
             <div style="display:flex; align-items:center; gap:14px; padding:6px 2px 18px 2px;">
                 <div style="width:46px; height:46px; border-radius:50%; background-color:#475569; color:#ffffff; display:flex; align-items:center; justify-content:center; font-family:'Inter', sans-serif; font-weight:600; font-size:1.1rem; box-shadow:0 2px 5px rgba(0,0,0,0.1);">
@@ -1059,72 +1060,6 @@ def render_sidebar():
                 st.session_state.messages = []
                 _reset_local_session()
                 st.rerun()
-
-
-# def render_welcome_screen():
-#     user_name = st.session_state.get("user_name", "")
-#     first_name = user_name.split()[0] if user_name else "User"
-
-#     # Animated Welcome Layout (Floating effect + Gradient text)
-#     st.markdown(f"""
-#         <div style="text-align:center; margin-top:3rem; margin-bottom:3.5rem; animation: fadeInUp 0.8s ease-out, float 5s ease-in-out infinite;">   
-#             <h1 style="font-size:3.2rem; font-weight:800; letter-spacing:-1.5px; margin-bottom:0.5rem; line-height: 1.2; background: linear-gradient(270deg, #0f172a, #3b82f6, #0f172a); background-size: 200% 200%; -webkit-background-clip: text; -webkit-text-fill-color: transparent; animation: gradientFlow 6s ease infinite;">
-#                 Nexus Intelligence
-#             </h1>
-#             <h2 style="font-size:2rem; font-weight:600; color:#334155; margin-bottom:1rem; letter-spacing:-0.5px;">
-#                 Hello, {first_name}.
-#             </h2>
-#             <p style="color:#64748b; font-size:1.05rem; max-width:550px; margin:0 auto; line-height:1.6;">
-#                 Ask anything about your data. Seamlessly query structured tables and unstructured documents using natural language.
-#             </p>
-#         </div>
-#     """, unsafe_allow_html=True)
-
-#     # 1. Fetch up to 3 most recent unique user queries
-#     recent_searches, seen = [], set()
-#     for s_id, msgs in reversed(st.session_state.chat_sessions.items()):
-#         for m in reversed(msgs):
-#             if m["role"] == "user" and m["content"] not in seen:
-#                 seen.add(m["content"])
-#                 recent_searches.append(m["content"])
-#                 if len(recent_searches) == 3:
-#                     break
-#         if len(recent_searches) == 3:
-#             break
-
-#     # 2. Define our fallback defaults
-#     defaults = [
-#         "How many customers do we have?",
-#         "What is the total generated revenue?",
-#         "Show me the 5 most recent orders"
-#     ]
-
-#     # 3. Combine them intelligently
-#     examples = []
-#     for query in recent_searches:
-#         examples.append(query)
-        
-#     for default_query in defaults:
-#         if len(examples) < 3 and default_query not in examples:
-#             examples.append(default_query)
-
-#     # Render the Uniform Cards
-#     st.markdown("<p style='text-align:center; font-size:0.8rem; color:#94a3b8; font-weight:600; text-transform:uppercase; margin-bottom:0.5rem;'>Recent & Suggested</p>", unsafe_allow_html=True)
-    
-#     # Hidden anchor triggers the card CSS
-#     st.markdown('<div id="recent-chips-target"></div>', unsafe_allow_html=True)
-#     col1, col2, col3 = st.columns(3)
-    
-#     for i, (query, col) in enumerate(zip(examples, [col1, col2, col3])):
-#         with col:
-#             # Shortened slightly to fit nicely within cards
-#             short_query = query[:55] + "..." if len(query) > 55 else query
-            
-#             # use_container_width ensures they are all uniformly sized columns
-#             if st.button(f'{short_query}', icon=":material/history:", key=f"ex_btn_{i}", use_container_width=True):
-#                 st.session_state.messages.append({"role": "user", "content": query})
-#                 save_chat_sessions()
-#                 st.rerun()
 
 
 def render_welcome_screen():
@@ -1310,6 +1245,29 @@ def inject_mentions_js(schemas):
     """
     components.html(js_code, height=0, width=0)
 
+    import base64
+
+def get_user_avatar(user_name):
+    """Recreates the Settings profile avatar as an image for the chat."""
+    name_parts = user_name.split() if user_name else []
+    if len(name_parts) >= 2:
+        initials = (name_parts[0][0] + name_parts[1][0]).upper()
+    elif len(name_parts) == 1:
+        initials = name_parts[0][:2].upper()
+    else:
+        initials = "U"
+        
+    svg = f"""
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+        <circle cx="50" cy="50" r="50" fill="#475569" />
+        <text x="50" y="50" font-family="Inter, Arial, sans-serif" font-size="40" font-weight="600" fill="#ffffff" dominant-baseline="central" text-anchor="middle">
+            {initials}
+        </text>
+    </svg>
+    """
+    b64 = base64.b64encode(svg.encode('utf-8')).decode('utf-8')
+    return f"data:image/svg+xml;base64,{b64}"
+
 def main():
     """Main Streamlit application."""
     inject_custom_css()
@@ -1386,8 +1344,15 @@ def main():
 
                     if "lineage" in message:
                         display_lineage(message["lineage"])
+            # else:
+            #     with st.chat_message(message["role"]):
+            #         st.write(message["content"])
             else:
-                with st.chat_message(message["role"]):
+                # Grab the user's name and generate their matching profile avatar
+                user_name = st.session_state.get("user_name", "User")
+                custom_avatar = get_user_avatar(user_name)
+                
+                with st.chat_message(message["role"], avatar=custom_avatar):
                     st.write(message["content"])
 
     st.write("")
