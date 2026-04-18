@@ -5,7 +5,9 @@
 DO $$
 BEGIN
     CREATE ROLE ai_readonly LOGIN;
-EXCEPTION WHEN duplicate_object THEN NULL;
+EXCEPTION
+    WHEN duplicate_object THEN NULL;
+    WHEN unique_violation THEN NULL;
 END $$;
 
 ALTER ROLE ai_readonly WITH PASSWORD '1234';
@@ -25,4 +27,3 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO ai_readonly;
 -- Revoke dangerous privileges (defense in depth)
 REVOKE INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public FROM ai_readonly;
 REVOKE TRUNCATE ON ALL TABLES IN SCHEMA public FROM ai_readonly;
-

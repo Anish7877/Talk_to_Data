@@ -1,7 +1,4 @@
-"""
-Layer 6: Storyteller & Lineage Engine
-Natural language answers with full audit trail
-"""
+""" Layer 6: Storyteller & Lineage Engine Natural language answers with full audit trail """
 
 import json
 import logging
@@ -43,60 +40,48 @@ class Storyteller:
     Includes full lineage tracing for audit purposes.
     """
 
-    STORYTELLER_PROMPT = """You are a data storyteller. Given a user's question and the results,
-provide a clear, concise natural language answer.
+    # SYSTEM_PROMPT = """You are Nexus Intelligence, a strict, factual enterprise data assistant.
+    # Your task is to answer the user's question using ONLY the provided SQL Results and Document Context.
 
-Rules:
-- Answer in 2-3 sentences maximum
-- Be direct and factual
-- Use the data provided, don't make assumptions
-- Format numbers appropriately
-- Don't mention SQL, tables, or technical details
-- If data is empty, say so clearly
+    # ### STRICT RULES:
+    # 1. NO EXTERNAL KNOWLEDGE: You must absolutely NEVER use your pre-trained knowledge to answer the question.
+    # 2. GROUNDING: If the answer cannot be explicitly found in the SQL Results or Document Context provided below, you MUST reply with: "I do not have enough information in the current data to answer that."
+    # 3. NO GUESSING: Do not extrapolate, guess, or assume missing data.
+    # 4. FORMATTING: Be concise. If SQL data is provided, state the numbers clearly. Do not mention SQL or database tables in your final answer.
+    # """
+    SYSTEM_PROMPT = """You are Nexus Intelligence, a strict, factual enterprise data assistant.
+    Your task is to answer the user's question using ONLY the provided SQL Results and Document Context.
+    STRICT RULES:
+    1. No external knowledge. Use only provided context.
+    2. If answer is not explicitly supported by SQL Results or Document Context, reply exactly:
+        "I do not have enough information in the current data to answer that."
+    3. Do not guess or infer missing facts.
+    4. If using document context, cite source tags like (file_name#chunk_index) in the answer.
+    5. Keep answer concise and factual.
+    """
 
-User Question: {user_question}
+    FALLBACK_TEXT = "I do not have enough information in the current data to answer that."
 
-Data Results:
-{data_results}
+    SECOND_PASS_SYSTEM_PROMPT = """You are Nexus Intelligence.
+Use only the provided SQL Results and Document Context.
+If document context exists and is relevant, provide a concise extractive answer from that context and cite source tags like (file_name#chunk_index).
+Do not use external knowledge.
+Only return this exact sentence if the context truly has no answer:
+I do not have enough information in the current data to answer that.
+"""
 
-Document Context (if available):
-{doc_context}
+    USER_PROMPT = """
+    ### User Question:
+    {user_question}
 
-Provide your answer:"""
+    ### SQL Results (Structured Data):
+    {sql_results}
 
-    SQL_ONLY_PROMPT = """You are a data storyteller. Given a user's question about data,
-provide a clear, concise natural language answer based on the SQL results.
+    ### Document Context (Unstructured Data):
+    {doc_context}
 
-User Question: {user_question}
-
-SQL Results:
-{sql_results}
-
-Provide your answer in 2-3 sentences. Do not mention SQL or tables."""
-
-    RAG_ONLY_PROMPT = """You are a helpful assistant. Given a user's question and relevant document excerpts,
-provide a clear answer using the document context.
-
-User Question: {user_question}
-
-Document Excerpts:
-{doc_context}
-
-Provide a concise answer in 2-3 sentences."""
-
-    HYBRID_PROMPT = """You are a data storyteller. Given a user's question, data from the database,
-and relevant document context, provide a comprehensive answer.
-
-User Question: {user_question}
-
-Here is data from the database:
-{sql_results}
-
-Here is relevant document context:
-{doc_context}
-
-Combine both sources to provide a clear, comprehensive answer in 2-3 sentences.
-Do not mention SQL, tables, or technical details."""
+    Answer the question strictly following the rules above.
+    """
 
     def __init__(
         self,
@@ -145,15 +130,31 @@ Do not mention SQL, tables, or technical details."""
 
         return "\n".join(formatted)
 
+    # def _format_doc_context(self, docs: List[Dict[str, Any]]) -> str:
+    #     """Format document context for the prompt."""
+    #     if not docs:
+    #         return "No document context available."
+
+    #     formatted = []
+    #     for i, doc in enumerate(docs[:5], 1):
+    #         content = doc.get("content", "")[:500]  # Limit content
+    #         formatted.append(f"[{i}] {content}")
+
+    #     return "\n\n".join(formatted)
+
     def _format_doc_context(self, docs: List[Dict[str, Any]]) -> str:
-        """Format document context for the prompt."""
+        """Format document context for the prompt with source tags."""
         if not docs:
             return "No document context available."
 
         formatted = []
         for i, doc in enumerate(docs[:5], 1):
-            content = doc.get("content", "")[:500]  # Limit content
-            formatted.append(f"[{i}] {content}")
+            content = doc.get("content", "")[:500]
+            meta = doc.get("metadata", {}) or {}
+            file_name = meta.get("file_name", "unknown")
+            chunk_index = meta.get("chunk_index", "?")
+            source_tag = f"{file_name}#{chunk_index}"
+            formatted.append(f"[{i}] ({source_tag}) {content}")
 
         return "\n\n".join(formatted)
 
@@ -177,6 +178,53 @@ Do not mention SQL, tables, or technical details."""
 
         return response["choices"][0]["message"]["content"]
 
+    def _looks_like_fallback(self, answer: Optional[str]) -> bool:
+        if not answer:
+            return True
+        text = answer.strip().lower()
+        return self.FALLBACK_TEXT.lower() in text
+
+    def _deterministic_sql_answer(self, sql_results: List[Dict[str, Any]], user_question: str = "") -> str:
+        """Return a stable SQL-grounded answer when LLM fallback is triggered despite rows."""
+        if not sql_results:
+            return self.FALLBACK_TEXT
+
+        sample = sql_results[0]
+        cols = list(sample.keys())
+        q = (user_question or "").lower()
+
+        # Common case: one selected column (for example top IDs)
+        if len(cols) == 1:
+            col = cols[0]
+            values = [str(r.get(col, "")) for r in sql_results[:10] if r.get(col) is not None]
+            if values:
+                if ("top" in q or "highest" in q) and ("people" in q or "customer" in q or "customers" in q):
+                    if len(values) == 1:
+                        return f"The top person is {values[0]}."
+                    if len(values) == 2:
+                        return f"The top people are {values[0]} and {values[1]}."
+                    return f"The top {len(values)} people are {', '.join(values[:-1])}, and {values[-1]}."
+
+                if len(values) == 1:
+                    return f"Based on the query results, the top {col} is {values[0]}."
+                if len(values) == 2:
+                    return f"Based on the query results, the top {col} values are {values[0]} and {values[1]}."
+                return f"Based on the query results, the top {col} values are {', '.join(values[:-1])}, and {values[-1]}."
+
+        # Generic table-like summary for multi-column outputs
+        lines = []
+        for idx, row in enumerate(sql_results[:5], 1):
+            row_txt = ", ".join(f"{k}={v}" for k, v in row.items())
+            lines.append(f"{idx}. {row_txt}")
+
+        preview = " ".join(lines)
+        if len(sql_results) > 5:
+            return (
+                f"Based on the query results, I found {len(sql_results)} rows. "
+                f"Here are the first 5: {preview}"
+            )
+        return f"Based on the query results, I found {len(sql_results)} rows: {preview}"
+
     def tell(
         self,
         user_question: str,
@@ -185,47 +233,41 @@ Do not mention SQL, tables, or technical details."""
         route: str = "sql"
     ) -> str:
         """
-        Generate a natural language answer.
-
-        Args:
-            user_question: The original user question
-            sql_results: Results from SQL query
-            doc_context: Retrieved document snippets
-            route: The routing type (sql, rag, both)
-
-        Returns:
-            Natural language answer
+        Generate a natural language answer with strict hallucination guardrails.
         """
-        if route == "sql" and sql_results:
-            prompt = self.SQL_ONLY_PROMPT.format(
-                user_question=user_question,
-                sql_results=self._format_sql_results(sql_results)
-            )
-            return self._generate_answer(prompt)
+        # Format the incoming data, providing safe fallback text if empty
+        formatted_sql = self._format_sql_results(sql_results) if sql_results else "No SQL data retrieved or query failed."
+        formatted_doc = self._format_doc_context(doc_context) if doc_context else "No document context retrieved."
 
-        elif route == "rag" and doc_context:
-            prompt = self.RAG_ONLY_PROMPT.format(
-                user_question=user_question,
-                doc_context=self._format_doc_context(doc_context)
-            )
-            return self._generate_answer(prompt)
+        # Assemble the user prompt
+        prompt = self.USER_PROMPT.format(
+            user_question=user_question,
+            sql_results=formatted_sql,
+            doc_context=formatted_doc
+        )
 
-        elif route == "both" and sql_results and doc_context:
-            prompt = self.HYBRID_PROMPT.format(
-                user_question=user_question,
-                sql_results=self._format_sql_results(sql_results),
-                doc_context=self._format_doc_context(doc_context)
-            )
-            return self._generate_answer(prompt)
+        # First pass: strict grounded answer generation
+        answer = self._generate_answer(prompt=prompt, system_message=self.SYSTEM_PROMPT)
 
-        else:
-            # Default fallback
-            prompt = self.STORYTELLER_PROMPT.format(
-                user_question=user_question,
-                data_results=self._format_sql_results(sql_results or []),
-                doc_context=self._format_doc_context(doc_context or [])
-            )
-            return self._generate_answer(prompt)
+        # If the model falls back despite having context, run a second pass optimized for extractive grounding.
+        has_doc_context = bool(doc_context)
+        has_sql_context = bool(sql_results)
+        if self._looks_like_fallback(answer) and (has_doc_context or has_sql_context):
+            try:
+                answer_retry = self._generate_answer(
+                    prompt=prompt,
+                    system_message=self.SECOND_PASS_SYSTEM_PROMPT,
+                )
+                if answer_retry and answer_retry.strip():
+                    answer = answer_retry
+            except Exception as e:
+                self.logger.warning(f"Second-pass answer generation failed: {str(e)}")
+
+        # Final safety: never show fallback when we already have SQL rows.
+        if has_sql_context and self._looks_like_fallback(answer):
+            return self._deterministic_sql_answer(sql_results or [], user_question=user_question)
+
+        return answer
 
     def log_lineage(self, trace: LineageTrace) -> bool:
         """
@@ -297,6 +339,7 @@ class QueryResponse:
     lineage: LineageTrace
     raw_results: Optional[List[Dict[str, Any]]] = None
     raw_docs: Optional[List[Dict[str, Any]]] = None
+    execution_error: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary."""
@@ -304,7 +347,8 @@ class QueryResponse:
             "answer": self.answer,
             "lineage": self.lineage.to_dict(),
             "raw_results": self.raw_results,
-            "raw_docs": self.raw_docs
+            "raw_docs": self.raw_docs,
+            "execution_error": self.execution_error,
         }
 
     def to_json(self) -> str:

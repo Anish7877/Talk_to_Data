@@ -63,6 +63,11 @@ class SemanticCache:
         embedding = self.model.encode(text, convert_to_numpy=True)
         return embedding
 
+    def _cache_key(self, query: str) -> str:
+        """Build deterministic Redis cache key for a query token."""
+        import hashlib
+        return f"cache:{hashlib.md5(query.encode()).hexdigest()}"
+
     def _compute_similarity(
         self,
         embedding1: np.ndarray,
@@ -109,6 +114,22 @@ class SemanticCache:
 
         return None
 
+    def get_exact(self, query: str) -> Optional[Dict[str, Any]]:
+        """Get a cached response by exact query token match (no semantic similarity)."""
+        cache_key = self._cache_key(query)
+        cached_data = self.redis_client.get(cache_key)
+        if not cached_data:
+            return None
+
+        try:
+            cached = json.loads(cached_data)
+            cached["cache_hit"] = True
+            cached["similarity"] = 1.0
+            self.redis_client.expire(cache_key, self.ttl_seconds)
+            return cached
+        except (json.JSONDecodeError, KeyError):
+            return None
+
     def set(
         self,
         query: str,
@@ -135,10 +156,29 @@ class SemanticCache:
             "metadata": metadata or {}
         }
 
-        # Use hash of query as key for uniqueness
-        import hashlib
-        cache_key = f"cache:{hashlib.md5(query.encode()).hexdigest()}"
+        cache_key = self._cache_key(query)
 
+        self.redis_client.setex(
+            cache_key,
+            self.ttl_seconds,
+            json.dumps(cache_entry, cls=CustomJSONEncoder)
+        )
+        return True
+
+    def set_exact(
+        self,
+        query: str,
+        answer: str,
+        metadata: Optional[Dict[str, Any]] = None
+    ) -> bool:
+        """Store a cache entry by exact token match without embedding generation."""
+        cache_entry = {
+            "query": query,
+            "answer": answer,
+            "metadata": metadata or {},
+        }
+
+        cache_key = self._cache_key(query)
         self.redis_client.setex(
             cache_key,
             self.ttl_seconds,

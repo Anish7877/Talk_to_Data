@@ -57,7 +57,7 @@ cp .env.example .env
 docker run -d -p 6379:6379 redis
 
 # Start PostgreSQL (example)
-docker run -d -p 5433:5432 -e POSTGRES_PASSWORD=secret postgres
+docker run -d -p 5432:5432 -e POSTGRES_PASSWORD=secret postgres
 ```
 
 ### 4. Set Up Database Role

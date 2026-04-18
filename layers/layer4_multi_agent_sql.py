@@ -56,7 +56,11 @@ Schema: {schema_context}
 Plan:"""
 
 CODER_PROMPT = """SQL expert. Write ONE raw PostgreSQL query only. No explanation, no markdown.
+Use ONLY tables and columns that appear in Schema.
+If the schema does not contain enough information, return:
+SELECT 'INSUFFICIENT_SCHEMA_CONTEXT' AS error_message
 
+Question: {user_query}
 Plan: {plan}
 Schema: {schema_context}
 SQL:"""
@@ -99,6 +103,7 @@ class MultiAgentSQLEngine:
 
     def coder_node(self, state: SQLState) -> SQLState:
         prompt = CODER_PROMPT.format(
+            user_query=state["user_query"],
             plan=state["plan"],
             schema_context=state["schema_context"]
         )
@@ -123,6 +128,17 @@ class MultiAgentSQLEngine:
             parsed = sqlglot.parse_one(state["sql_query"], dialect="postgres")
             if parsed:
                 tables_used = [t.name for t in parsed.find_all(sqlglot.exp.Table)]
+
+            allowed_tables = set(
+                t.lower()
+                for t in re.findall(r"Table:\s*([A-Za-z_][A-Za-z0-9_]*)", state["schema_context"] or "")
+            )
+            if allowed_tables and tables_used:
+                for used in tables_used:
+                    if used and used.lower() not in allowed_tables:
+                        errors.append(
+                            f"Unknown table referenced: {used}. Allowed tables: {sorted(allowed_tables)}"
+                        )
         except Exception as e:
             # Don't block on parse errors - just log them
             errors.append(f"SQL syntax warning: {str(e)}")

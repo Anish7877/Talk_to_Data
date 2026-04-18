@@ -8,6 +8,7 @@ import sys
 import json
 import os
 from pathlib import Path
+import base64
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent))
@@ -15,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from main_pipeline import AIQuerySystem
 from layers.layer6_storyteller import QueryResponse, LineageTrace
 from document_processor import classify_file
+from datetime import datetime, timezone
 import tempfile
 import os
 
@@ -135,297 +137,524 @@ def _reset_local_session():
     st.session_state.current_session_id = "Session 1"
     st.session_state.session_counter = 1
 
+
+
+
+# def inject_custom_css():
+#     st.markdown("""
+#         <style>
+#         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+#         @keyframes fadeInUp {
+#             from { opacity: 0; transform: translateY(12px); }
+#             to   { opacity: 1; transform: translateY(0); }
+#         }
+#         @keyframes shimmer {
+#             0%   { background-position: -200% 0; }
+#             100% { background-position:  200% 0; }
+#         }
+
+#         .stApp {
+#             background: #f8fafc !important;
+#             color: #0f172a !important;
+#         }
+
+#         [data-testid="stHeader"], header[data-testid="stHeader"] {
+#             background-color: #f8fafc !important;
+#         }
+#         .stApp p, .stApp label, .stMarkdown p,
+#         .stTextInput label, .stTextArea label,
+#         h1, h2, h3, h4, h5, h6 {
+#             font-family: 'Inter', system-ui, sans-serif !important;
+#         }
+
+#         .block-container {
+#             padding-top: 1.5rem !important;
+#             padding-bottom: 4rem !important;
+#             max-width: 860px !important;
+#         }
+
+#         h1 {
+#             font-size: 1.6rem !important;
+#             font-weight: 700 !important;
+#             letter-spacing: -0.6px !important;
+#             background: linear-gradient(135deg, #0f172a 0%, #334155 60%, #64748b 100%) !important;
+#             -webkit-background-clip: text !important;
+#             -webkit-text-fill-color: transparent !important;
+#             background-clip: text !important;
+#             text-align: center !important;
+#             margin-bottom: 0 !important;
+#         }
+
+#         [data-testid="stSidebar"] {
+#             background: #f1f5f9 !important;
+#             border-right: 1px solid #e2e8f0 !important;
+#         }
+#         [data-testid="stSidebar"] h1,
+#         [data-testid="stSidebar"] h2,
+#         [data-testid="stSidebar"] h3,
+#         [data-testid="stSidebar"] header {
+#             color: #0f172a !important;
+#             -webkit-text-fill-color: #0f172a !important;
+#             background: none !important;
+#         }
+#         [data-testid="stSidebar"] p,
+#         [data-testid="stSidebar"] label {
+#             color: #475569 !important;
+#             font-size: 0.85rem !important;
+#         }
+
+#         [data-testid="stSidebar"] button[kind="tertiary"] {
+#             justify-content: flex-start !important;
+#             padding: 0.45rem 0.6rem !important;
+#             font-size: 0.84rem !important;
+#             color: #475569 !important;
+#             border-radius: 8px !important;
+#             transition: all 0.2s ease !important;
+#             border: none !important;
+#         }
+#         [data-testid="stSidebar"] button[kind="tertiary"]:hover {
+#             color: #0f172a !important;
+#             background: rgba(15,23,42,0.07) !important;
+#             transform: translateX(2px) !important;
+#         }
+
+#         [data-testid="stSidebar"] button[kind="primary"],
+#         [data-testid="stSidebar"] button[kind="primary"] p,
+#         [data-testid="stSidebar"] button[kind="primary"] span {
+#             background: #0f172a !important;
+#             border: none !important;
+#             color: #f8fafc !important;
+#             -webkit-text-fill-color: #f8fafc !important;
+#             font-weight: 600 !important;
+#             border-radius: 10px !important;
+#             font-size: 0.88rem !important;
+#         }
+#         [data-testid="stSidebar"] button[kind="primary"]:hover {
+#             background: #1e293b !important;
+#             box-shadow: 0 4px 12px rgba(15,23,42,0.2) !important;
+#         }
+
+#         [data-testid="stChatMessage"] {
+#             background: #ffffff !important;
+#             border: 1px solid #e2e8f0 !important;
+#             border-radius: 16px !important;
+#             padding: 1rem 1.25rem !important;
+#             margin-bottom: 0.6rem !important;
+#             animation: fadeInUp 0.3s ease-out !important;
+#             box-shadow: 0 1px 2px rgba(0,0,0,0.04) !important;
+#             transition: box-shadow 0.2s ease !important;
+#         }
+#         [data-testid="stChatMessage"]:hover {
+#             box-shadow: 0 3px 10px rgba(0,0,0,0.07) !important;
+#         }
+#         [data-testid="stChatMessage"] p {
+#             color: #1e293b !important;
+#             font-size: 0.94rem !important;
+#             line-height: 1.8 !important;
+#         }
+
+#         .stButton > button[kind="primary"] {
+#             background: #0f172a !important;
+#             border: none !important;
+#             color: #f8fafc !important;
+#             font-weight: 600 !important;
+#             border-radius: 10px !important;
+#             font-size: 0.88rem !important;
+#             padding: 0.5rem 1.2rem !important;
+#             transition: all 0.2s ease !important;
+#         }
+#         .stButton > button[kind="primary"]:hover {
+#             background: #1e293b !important;
+#             box-shadow: 0 4px 12px rgba(15,23,42,0.2) !important;
+#             transform: translateY(-1px) !important;
+#         }
+#         .stButton > button[kind="secondary"],
+#         .stButton > button:not([kind]) {
+#             background: #ffffff !important;
+#             border: 1px solid #e2e8f0 !important;
+#             color: #334155 !important;
+#             border-radius: 10px !important;
+#             font-size: 0.88rem !important;
+#             transition: all 0.2s ease !important;
+#         }
+#         .stButton > button[kind="secondary"]:hover,
+#         .stButton > button:not([kind]):hover {
+#             border-color: #94a3b8 !important;
+#             background: #f8fafc !important;
+#             transform: translateY(-1px) !important;
+#         }
+
+#         div[data-baseweb="input"] > div, div[data-baseweb="textarea"] > div, .stTextInput input, .stTextArea textarea {
+#             background-color: #ffffff !important;
+#             border: 1px solid #e2e8f0 !important;
+#             color: #0f172a !important;
+#             border-radius: 10px !important;
+#             font-size: 0.9rem !important;
+#             transition: border-color 0.2s ease, box-shadow 0.2s ease !important;
+#         }
+#         div[data-baseweb="input"]:focus-within > div, div[data-baseweb="textarea"]:focus-within > div, .stTextInput input:focus, .stTextArea textarea:focus {
+#             border-color: #334155 !important;
+#             box-shadow: 0 0 0 3px rgba(51,65,85,0.08) !important;
+#             background-color: #ffffff !important;
+#         }
+
+#         /* --- CHAT INPUT & ATTACHMENT BUTTON UNIFICATION --- */
+# /* --- UNIFIED SINGLE-COLOR CHAT INPUT --- */
+#         [data-testid="stChatInput"] {
+#             background-color: #ffffff !important;
+#             border: 1px solid #e2e8f0 !important;
+#             border-radius: 12px !important;
+#             box-shadow: 0 4px 12px rgba(0,0,0,0.03) !important;
+#         }
+#         /* Strip the inner grey background Streamlit adds by default */
+#         [data-testid="stChatInput"] > div:first-of-type, 
+#         [data-testid="stChatInput"] textarea {
+#             background-color: transparent !important;
+#         }
+#         [data-testid="stChatInput"]:focus-within {
+#             border-color: #334155 !important;
+#             box-shadow: 0 0 0 3px rgba(51,65,85,0.08) !important;
+#         }
+
+#         /* Match the attachment popover button exactly to the chat input */
+#         div[data-testid="stPopover"] > button {
+#             border-radius: 12px !important;
+#             border: 1px solid #e2e8f0 !important;
+#             background-color: #ffffff !important;
+#             box-shadow: 0 4px 12px rgba(0,0,0,0.03) !important;
+#             height: 52px !important;
+#             padding: 0 !important;
+#             color: #475569 !important;
+#             transition: all 0.2s ease !important;
+#             margin-bottom: 0px !important;
+#         }
+#         div[data-testid="stPopover"] > button:hover {
+#             border-color: #334155 !important;
+#             color: #0f172a !important;
+#             background-color: #f8fafc !important;
+#         }
+#         div[data-testid="stPopover"] > button svg[data-testid="stIconMaterial"]:last-of-type,
+#         div[data-testid="stPopover"] > button div > svg {
+#             display: none !important;
+#         }
+
+#         /* --- MAGIC CSS: DYNAMIC WIDTH CHIPS (NON-UNIFORM) --- */
+#         /* Targets only the columns immediately following our specific anchor */
+#         div:has(> #recent-chips-target) + div[data-testid="stHorizontalBlock"] {
+#             justify-content: center !important;
+#             gap: 12px !important;
+#         }
+#         div:has(> #recent-chips-target) + div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {
+#             width: auto !important; /* Forces columns to shrink to text width */
+#             flex: 0 1 auto !important;
+#             min-width: 0 !important;
+#         }
+#         div:has(> #recent-chips-target) + div[data-testid="stHorizontalBlock"] .stButton > button {
+#             border-radius: 50px !important;
+#             padding: 0.3rem 1.2rem !important;
+#             background: #ffffff !important;
+#             border: 1px solid #e2e8f0 !important;
+#             color: #475569 !important;
+#             font-size: 0.88rem !important;
+#             box-shadow: 0 1px 3px rgba(0,0,0,0.02) !important;
+#         }
+#         div:has(> #recent-chips-target) + div[data-testid="stHorizontalBlock"] .stButton > button:hover {
+#             background: #f8fafc !important;
+#             border-color: #94a3b8 !important;
+#             color: #0f172a !important;
+#         }
+#         /* --- MAGIC CSS: PIN SETTINGS TO BOTTOM OF SIDEBAR --- */
+#         [data-testid="stSidebar"] .stVerticalBlock:first-of-type {
+#             display: flex !important;
+#             flex-direction: column !important;
+#             height: calc(100vh - 4rem) !important;
+#         }
+        
+#         [data-testid="stSidebar"] .stVerticalBlock:first-of-type > div:last-child {
+#             margin-top: auto !important;
+#             padding-bottom: 1rem !important;
+#         }
+#         </style>
+#     """, unsafe_allow_html=True)
+
+# def inject_custom_css():
+    # st.markdown("""
+    #     <style>
+    #     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+    #     /* --- NEW ANIMATIONS FOR WELCOME SCREEN --- */
+    #     @keyframes fadeInUp {
+    #         from { opacity: 0; transform: translateY(12px); }
+    #         to   { opacity: 1; transform: translateY(0); }
+    #     }
+    #     @keyframes float {
+    #         0% { transform: translateY(0px); }
+    #         50% { transform: translateY(-8px); }
+    #         100% { transform: translateY(0px); }
+    #     }
+    #     @keyframes gradientFlow {
+    #         0% { background-position: 0% 50%; }
+    #         50% { background-position: 100% 50%; }
+    #         100% { background-position: 0% 50%; }
+    #     }
+    #     @keyframes shimmer {
+    #         0%   { background-position: -200% 0; }
+    #         100% { background-position:  200% 0; }
+    #     }
+
+    #     .stApp {
+    #         background: #f8fafc !important;
+    #         color: #0f172a !important;
+    #     }
+
+    #     [data-testid="stHeader"], header[data-testid="stHeader"] {
+    #         background-color: #f8fafc !important;
+    #     }
+    #     .stApp p, .stApp label, .stMarkdown p,
+    #     .stTextInput label, .stTextArea label,
+    #     h1, h2, h3, h4, h5, h6 {
+    #         font-family: 'Inter', system-ui, sans-serif !important;
+    #     }
+
+    #     .block-container {
+    #         padding-top: 1.5rem !important;
+    #         padding-bottom: 4rem !important;
+    #         max-width: 860px !important;
+    #     }
+
+    #     h1 {
+    #         font-size: 1.6rem !important;
+    #         font-weight: 700 !important;
+    #         letter-spacing: -0.6px !important;
+    #         background: linear-gradient(135deg, #0f172a 0%, #334155 60%, #64748b 100%) !important;
+    #         -webkit-background-clip: text !important;
+    #         -webkit-text-fill-color: transparent !important;
+    #         background-clip: text !important;
+    #         text-align: center !important;
+    #         margin-bottom: 0 !important;
+    #     }
+
+    #     /* [SIDEBAR CSS REMAINS UNCHANGED...] */
+    #     [data-testid="stSidebar"] { background: #f1f5f9 !important; border-right: 1px solid #e2e8f0 !important; }
+    #     [data-testid="stSidebar"] h1, [data-testid="stSidebar"] h2, [data-testid="stSidebar"] h3, [data-testid="stSidebar"] header { color: #0f172a !important; -webkit-text-fill-color: #0f172a !important; background: none !important; }
+    #     [data-testid="stSidebar"] p, [data-testid="stSidebar"] label { color: #475569 !important; font-size: 0.85rem !important; }
+    #     [data-testid="stSidebar"] button[kind="tertiary"] { justify-content: flex-start !important; padding: 0.45rem 0.6rem !important; font-size: 0.84rem !important; color: #475569 !important; border-radius: 8px !important; transition: all 0.2s ease !important; border: none !important; }
+    #     [data-testid="stSidebar"] button[kind="tertiary"]:hover { color: #0f172a !important; background: rgba(15,23,42,0.07) !important; transform: translateX(2px) !important; }
+    #     [data-testid="stSidebar"] button[kind="primary"], [data-testid="stSidebar"] button[kind="primary"] p, [data-testid="stSidebar"] button[kind="primary"] span { background: #0f172a !important; border: none !important; color: #f8fafc !important; -webkit-text-fill-color: #f8fafc !important; font-weight: 600 !important; border-radius: 10px !important; font-size: 0.88rem !important; }
+    #     [data-testid="stSidebar"] button[kind="primary"]:hover { background: #1e293b !important; box-shadow: 0 4px 12px rgba(15,23,42,0.2) !important; }
+    #     [data-testid="stSidebar"] .stVerticalBlock:first-of-type { display: flex !important; flex-direction: column !important; height: calc(100vh - 4rem) !important; }
+    #     [data-testid="stSidebar"] .stVerticalBlock:first-of-type > div:last-child { margin-top: auto !important; padding-bottom: 1rem !important; }
+
+    #     [data-testid="stChatMessage"] {
+    #         background: #ffffff !important;
+    #         border: 1px solid #e2e8f0 !important;
+    #         border-radius: 16px !important;
+    #         padding: 1rem 1.25rem !important;
+    #         margin-bottom: 0.6rem !important;
+    #         animation: fadeInUp 0.3s ease-out !important;
+    #         box-shadow: 0 1px 2px rgba(0,0,0,0.04) !important;
+    #         transition: box-shadow 0.2s ease !important;
+    #     }
+    #     [data-testid="stChatMessage"]:hover { box-shadow: 0 3px 10px rgba(0,0,0,0.07) !important; }
+    #     [data-testid="stChatMessage"] p { color: #1e293b !important; font-size: 0.94rem !important; line-height: 1.8 !important; }
+
+    #     .stButton > button[kind="primary"] { background: #0f172a !important; border: none !important; color: #f8fafc !important; font-weight: 600 !important; border-radius: 10px !important; font-size: 0.88rem !important; padding: 0.5rem 1.2rem !important; transition: all 0.2s ease !important; }
+    #     .stButton > button[kind="primary"]:hover { background: #1e293b !important; box-shadow: 0 4px 12px rgba(15,23,42,0.2) !important; transform: translateY(-1px) !important; }
+    #     .stButton > button[kind="secondary"], .stButton > button:not([kind]) { background: #ffffff !important; border: 1px solid #e2e8f0 !important; color: #334155 !important; border-radius: 10px !important; font-size: 0.88rem !important; transition: all 0.2s ease !important; }
+    #     .stButton > button[kind="secondary"]:hover, .stButton > button:not([kind]):hover { border-color: #94a3b8 !important; background: #f8fafc !important; transform: translateY(-1px) !important; }
+
+    #     /* --- PERFECT 1-COLOR CHAT INPUT --- */
+    #     [data-testid="stChatInput"] {
+    #         background-color: transparent !important; /* Removes outer grey box completely */
+    #     }
+    #     [data-testid="stChatInput"] > div {
+    #         background-color: #ffffff !important;
+    #         border: 1px solid #e2e8f0 !important;
+    #         border-radius: 12px !important;
+    #         box-shadow: 0 4px 12px rgba(0,0,0,0.03) !important;
+    #     }
+    #     [data-testid="stChatInput"] > div:focus-within {
+    #         border-color: #334155 !important;
+    #         box-shadow: 0 0 0 3px rgba(51,65,85,0.08) !important;
+    #     }
+    #     [data-testid="stChatInput"] textarea {
+    #         background-color: transparent !important;
+    #         color: #0f172a !important;
+    #     }
+
+    #     /* MATCH ATTACHMENT POPOVER TO CHAT INPUT */
+    #     div[data-testid="stPopover"] > button {
+    #         border-radius: 12px !important;
+    #         border: 1px solid #e2e8f0 !important;
+    #         background-color: #ffffff !important;
+    #         box-shadow: 0 4px 12px rgba(0,0,0,0.03) !important;
+    #         height: 52px !important;
+    #         padding: 0 !important;
+    #         color: #475569 !important;
+    #         transition: all 0.2s ease !important;
+    #         margin-bottom: 0px !important;
+    #     }
+    #     div[data-testid="stPopover"] > button:hover {
+    #         border-color: #334155 !important;
+    #         color: #0f172a !important;
+    #         background-color: #f8fafc !important;
+    #     }
+    #     div[data-testid="stPopover"] > button svg:last-of-type,
+    #     div[data-testid="stPopover"] > button div > svg { display: none !important; }
+
+    #     /* --- UNIFORM MULTI-LINE CARDS FOR RECENT QUERIES --- */
+    #     div:has(> #recent-chips-target) + div[data-testid="stHorizontalBlock"] .stButton > button {
+    #         border-radius: 12px !important;
+    #         padding: 1rem !important;
+    #         background: #ffffff !important;
+    #         border: 1px solid #e2e8f0 !important;
+    #         color: #334155 !important;
+    #         font-size: 0.88rem !important;
+    #         min-height: 85px !important;
+    #         display: flex !important;
+    #         align-items: center !important;
+    #         justify-content: center !important;
+    #         box-shadow: 0 2px 5px rgba(0,0,0,0.02) !important;
+    #         transition: all 0.2s ease !important;
+    #     }
+    #     /* Forces the text inside the button card to wrap properly */
+    #     div:has(> #recent-chips-target) + div[data-testid="stHorizontalBlock"] .stButton > button p {
+    #         white-space: normal !important;
+    #         line-height: 1.4 !important;
+    #         margin: 0 !important;
+    #     }
+    #     div:has(> #recent-chips-target) + div[data-testid="stHorizontalBlock"] .stButton > button:hover {
+    #         border-color: #94a3b8 !important;
+    #         box-shadow: 0 4px 12px rgba(0,0,0,0.06) !important;
+    #         transform: translateY(-2px) !important;
+    #         background: #f8fafc !important;
+    #     }
+    #     </style>
+    # """, unsafe_allow_html=True)
+
 def inject_custom_css():
     st.markdown("""
         <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
 
+        /* --- NEW ANIMATIONS FOR WELCOME SCREEN --- */
         @keyframes fadeInUp {
             from { opacity: 0; transform: translateY(12px); }
             to   { opacity: 1; transform: translateY(0); }
         }
-        @keyframes shimmer {
-            0%   { background-position: -200% 0; }
-            100% { background-position:  200% 0; }
+        @keyframes float {
+            0% { transform: translateY(0px); }
+            50% { transform: translateY(-8px); }
+            100% { transform: translateY(0px); }
+        }
+        @keyframes gradientFlow {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
         }
 
-        .stApp {
-            background: #f8fafc !important;
-            color: #0f172a !important;
+        /* --- BASE APP STYLES --- */
+        .stApp { background: #f8fafc !important; color: #0f172a !important; }
+        [data-testid="stHeader"], header[data-testid="stHeader"] { background-color: #f8fafc !important; }
+        .stApp p, .stApp label, .stMarkdown p, .stTextInput label, .stTextArea label, h1, h2, h3, h4, h5, h6 { font-family: 'Inter', system-ui, sans-serif !important; }
+        .block-container { padding-top: 1.5rem !important; padding-bottom: 4rem !important; max-width: 860px !important; }
+
+        /* --- SIDEBAR CSS --- */
+        [data-testid="stSidebar"] { background: #f1f5f9 !important; border-right: 1px solid #e2e8f0 !important; }
+        [data-testid="stSidebar"] h1, [data-testid="stSidebar"] h2, [data-testid="stSidebar"] h3, [data-testid="stSidebar"] header { color: #0f172a !important; -webkit-text-fill-color: #0f172a !important; background: none !important; }
+        [data-testid="stSidebar"] p, [data-testid="stSidebar"] label { color: #475569 !important; font-size: 0.85rem !important; }
+        [data-testid="stSidebar"] button[kind="tertiary"] { justify-content: flex-start !important; padding: 0.45rem 0.6rem !important; font-size: 0.84rem !important; color: #475569 !important; border-radius: 8px !important; transition: all 0.2s ease !important; border: none !important; }
+        [data-testid="stSidebar"] button[kind="tertiary"]:hover { color: #0f172a !important; background: rgba(15,23,42,0.07) !important; transform: translateX(2px) !important; }
+        [data-testid="stSidebar"] button[kind="primary"], [data-testid="stSidebar"] button[kind="primary"] p, [data-testid="stSidebar"] button[kind="primary"] span { background: #0f172a !important; border: none !important; color: #f8fafc !important; -webkit-text-fill-color: #f8fafc !important; font-weight: 600 !important; border-radius: 10px !important; font-size: 0.88rem !important; }
+        [data-testid="stSidebar"] button[kind="primary"]:hover { background: #1e293b !important; box-shadow: 0 4px 12px rgba(15,23,42,0.2) !important; }
+        
+        /* Pin Settings to Bottom */
+        [data-testid="stSidebar"] .stVerticalBlock:first-of-type { display: flex !important; flex-direction: column !important; height: calc(100vh - 4rem) !important; }
+        [data-testid="stSidebar"] .stVerticalBlock:first-of-type > div:last-child { margin-top: auto !important; padding-bottom: 1rem !important; }
+
+        /* --- CHAT MESSAGES --- */
+        [data-testid="stChatMessage"] { background: #ffffff !important; border: 1px solid #e2e8f0 !important; border-radius: 16px !important; padding: 1rem 1.25rem !important; margin-bottom: 0.6rem !important; animation: fadeInUp 0.3s ease-out !important; box-shadow: 0 1px 2px rgba(0,0,0,0.04) !important; transition: box-shadow 0.2s ease !important; }
+        [data-testid="stChatMessage"]:hover { box-shadow: 0 3px 10px rgba(0,0,0,0.07) !important; }
+        [data-testid="stChatMessage"] p { color: #1e293b !important; font-size: 0.94rem !important; line-height: 1.8 !important; }
+
+        /* --- NUKE ALL INNER GREY BACKGROUNDS FOR CHAT INPUT (100% TRANSPARENT) --- */
+        [data-testid="stChatInput"],
+        [data-testid="stChatInput"] > div,
+        [data-testid="stChatInput"] div[data-baseweb="textarea"],
+        [data-testid="stChatInput"] div[data-baseweb="textarea"] > div,
+        [data-testid="stChatInput"] textarea {
+            background-color: transparent !important;
         }
 
-        [data-testid="stHeader"], header[data-testid="stHeader"] {
-            background-color: #f8fafc !important;
-        }
-        .stApp p, .stApp label, .stMarkdown p,
-        .stTextInput label, .stTextArea label,
-        h1, h2, h3, h4, h5, h6 {
-            font-family: 'Inter', system-ui, sans-serif !important;
-        }
-
-        .block-container {
-            padding-top: 1.5rem !important;
-            padding-bottom: 4rem !important;
-            max-width: 860px !important;
-        }
-
-        h1 {
-            font-size: 1.6rem !important;
-            font-weight: 700 !important;
-            letter-spacing: -0.6px !important;
-            background: linear-gradient(135deg, #0f172a 0%, #334155 60%, #64748b 100%) !important;
-            -webkit-background-clip: text !important;
-            -webkit-text-fill-color: transparent !important;
-            background-clip: text !important;
-            text-align: center !important;
-            margin-bottom: 0 !important;
-        }
-
-        [data-testid="stSidebar"] {
-            background: #f1f5f9 !important;
-            border-right: 1px solid #e2e8f0 !important;
-        }
-        [data-testid="stSidebar"] h1,
-        [data-testid="stSidebar"] h2,
-        [data-testid="stSidebar"] h3,
-        [data-testid="stSidebar"] header {
-            color: #0f172a !important;
-            -webkit-text-fill-color: #0f172a !important;
-            background: none !important;
-        }
-        [data-testid="stSidebar"] p,
-        [data-testid="stSidebar"] label {
-            color: #475569 !important;
-            font-size: 0.85rem !important;
-        }
-
-        [data-testid="stSidebar"] button[kind="tertiary"] {
-            justify-content: flex-start !important;
-            padding: 0.45rem 0.6rem !important;
-            font-size: 0.84rem !important;
-            color: #475569 !important;
-            border-radius: 8px !important;
-            transition: all 0.2s ease !important;
-            border: none !important;
-        }
-        [data-testid="stSidebar"] button[kind="tertiary"]:hover {
-            color: #0f172a !important;
-            background: rgba(15,23,42,0.07) !important;
-            transform: translateX(2px) !important;
-        }
-
-        [data-testid="stSidebar"] button[kind="primary"],
-        [data-testid="stSidebar"] button[kind="primary"] p,
-        [data-testid="stSidebar"] button[kind="primary"] span {
-            background: #0f172a !important;
-            border: none !important;
-            color: #f8fafc !important;
-            -webkit-text-fill-color: #f8fafc !important;
-            font-weight: 600 !important;
-            border-radius: 10px !important;
-            font-size: 0.88rem !important;
-        }
-        [data-testid="stSidebar"] button[kind="primary"]:hover {
-            background: #1e293b !important;
-            box-shadow: 0 4px 12px rgba(15,23,42,0.2) !important;
-        }
-
-        [data-testid="stSidebarCollapsedControl"] svg,
-        [data-testid="stSidebar"] button[data-testid="stBaseButton-headerNoPadding"] svg {
-            display: none !important;
-        }
-        [data-testid="stSidebarCollapsedControl"] button::before,
-        [data-testid="stSidebar"] button[data-testid="stBaseButton-headerNoPadding"]::before {
-            content: "☰";
-            font-size: 1.2rem;
-            color: #334155;
-        }
-
-        [data-testid="stChatMessage"] {
-            background: #ffffff !important;
-            border: 1px solid #e2e8f0 !important;
-            border-radius: 16px !important;
-            padding: 1rem 1.25rem !important;
-            margin-bottom: 0.6rem !important;
-            animation: fadeInUp 0.3s ease-out !important;
-            box-shadow: 0 1px 2px rgba(0,0,0,0.04) !important;
-            transition: box-shadow 0.2s ease !important;
-        }
-        [data-testid="stChatMessage"]:hover {
-            box-shadow: 0 3px 10px rgba(0,0,0,0.07) !important;
-        }
-        [data-testid="stChatMessage"] p {
-            color: #1e293b !important;
-            font-size: 0.94rem !important;
-            line-height: 1.8 !important;
-        }
-
-        div[data-testid="stMetricValue"] {
-            font-size: 18px !important;
-            font-weight: 600 !important;
-            color: #0f172a !important;
-            font-family: 'JetBrains Mono', monospace !important;
-        }
-        div[data-testid="stMetricLabel"] {
-            color: #94a3b8 !important;
-            font-size: 0.72rem !important;
-            text-transform: uppercase !important;
-            letter-spacing: 1px !important;
-        }
-
-        .stButton > button[kind="primary"] {
-            background: #0f172a !important;
-            border: none !important;
-            color: #f8fafc !important;
-            font-weight: 600 !important;
-            border-radius: 10px !important;
-            font-size: 0.88rem !important;
-            padding: 0.5rem 1.2rem !important;
-            transition: all 0.2s ease !important;
-        }
-        .stButton > button[kind="primary"]:hover {
-            background: #1e293b !important;
-            box-shadow: 0 4px 12px rgba(15,23,42,0.2) !important;
-            transform: translateY(-1px) !important;
-        }
-        .stButton > button[kind="secondary"],
-        .stButton > button:not([kind]) {
-            background: #ffffff !important;
-            border: 1px solid #e2e8f0 !important;
-            color: #334155 !important;
-            border-radius: 10px !important;
-            font-size: 0.88rem !important;
-            transition: all 0.2s ease !important;
-        }
-        .stButton > button[kind="secondary"]:hover,
-        .stButton > button:not([kind]):hover {
-            border-color: #94a3b8 !important;
-            background: #f8fafc !important;
-            transform: translateY(-1px) !important;
-        }
-
-        div[data-baseweb="input"] > div, div[data-baseweb="textarea"] > div, .stTextInput input, .stTextArea textarea {
-            background-color: #ffffff !important;
-            border: 1px solid #e2e8f0 !important;
-            color: #0f172a !important;
-            border-radius: 10px !important;
-            font-size: 0.9rem !important;
-            transition: border-color 0.2s ease, box-shadow 0.2s ease !important;
-        }
-        div[data-baseweb="input"]:focus-within > div, div[data-baseweb="textarea"]:focus-within > div, .stTextInput input:focus, .stTextArea textarea:focus {
-            border-color: #334155 !important;
-            box-shadow: 0 0 0 3px rgba(51,65,85,0.08) !important;
-            background-color: #ffffff !important;
-        }
-        .stTextInput label, .stTextArea label, .stSelectbox label, .stMultiSelect label, div[data-testid="stFileUploader"] label {
-            color: #475569 !important;
-            font-size: 0.85rem !important;
-            font-weight: 500 !important;
-        }
-
-        [data-testid="stChatInput"] {
-            background-color: #ffffff !important;
-            border: 1px solid #e2e8f0 !important;
-            border-radius: 14px !important;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.05) !important;
-        }
-
-        div[data-testid="stPopover"] > button {
-            border-radius: 14px !important;
-            border: 1px solid #e2e8f0 !important;
-            background-color: #ffffff !important;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.05) !important;
-            height: 48px !important;
-            padding: 0 !important;
-            color: #334155 !important;
+        /* Apply the border purely to the outer container */
+        [data-testid="stChatInput"] > div:first-of-type {
+            border: 1px solid #cbd5e1 !important;
+            border-radius: 12px !important;
+            box-shadow: none !important;
             transition: border-color 0.2s ease !important;
         }
-        div[data-testid="stPopover"] > button:hover {
-            border-color: #334155 !important;
-        }
-        div[data-testid="stPopover"] > button svg[data-testid="stIconMaterial"]:last-of-type,
-        div[data-testid="stPopover"] > button div > svg {
-            display: none !important;
-        }
 
-        [data-testid="stChatInput"]:focus-within {
+        /* Focus state */
+        [data-testid="stChatInput"] > div:first-of-type:focus-within {
             border-color: #334155 !important;
             box-shadow: 0 0 0 3px rgba(51,65,85,0.08) !important;
         }
+
+        /* TEXT COLOR FIX */
         [data-testid="stChatInput"] textarea {
             color: #0f172a !important;
             font-size: 0.93rem !important;
         }
 
-        .streamlit-expanderHeader {
-            background: #f8fafc !important;
-            border-radius: 10px !important;
+        /* MATCH ATTACHMENT POPOVER TO CHAT INPUT */
+        div[data-testid="stPopover"] > button {
+            border-radius: 12px !important;
+            border: 1px solid #cbd5e1 !important;
+            background-color: transparent !important; 
+            box-shadow: none !important;
+            height: 52px !important;
+            padding: 0 !important;
             color: #475569 !important;
-            font-size: 0.85rem !important;
-            font-weight: 500 !important;
+            margin-bottom: 0px !important;
             transition: all 0.2s ease !important;
         }
-        .streamlit-expanderHeader:hover {
-            color: #0f172a !important;
-            background: #f1f5f9 !important;
-        }
-
-        code, .stCode, pre {
-            font-family: 'JetBrains Mono', monospace !important;
-            background: #f8fafc !important;
-            border: 1px solid #e2e8f0 !important;
-            border-radius: 8px !important;
-            font-size: 0.82rem !important;
-            color: #1e293b !important;
-        }
-
-        .stTabs [data-baseweb="tab"] {
-            font-size: 0.83rem !important;
-            font-weight: 500 !important;
-            color: #64748b !important;
-            padding: 0.4rem 0.8rem !important;
-        }
-        .stTabs [aria-selected="true"] {
+        div[data-testid="stPopover"] > button:hover {
+            border-color: #334155 !important;
             color: #0f172a !important;
         }
-        .stTabs [data-baseweb="tab-highlight"] {
-            background: #0f172a !important;
-            height: 2px !important;
-        }
-        .stTabs [data-baseweb="tab-border"] {
-            background: #e2e8f0 !important;
-        }
+        div[data-testid="stPopover"] > button svg:last-of-type,
+        div[data-testid="stPopover"] > button div > svg { display: none !important; }
 
-        .stAlert {
-            border-radius: 10px !important;
-            font-size: 0.88rem !important;
-            border-width: 1px !important;
-        }
-
-        [data-testid="stFileUploader"] section {
-            border: 1.5px dashed #cbd5e1 !important;
+        /* --- UNIFORM MULTI-LINE CARDS FOR RECENT QUERIES --- */
+        div:has(> #recent-chips-target) + div[data-testid="stHorizontalBlock"] .stButton > button {
             border-radius: 12px !important;
-            background: #f8fafc !important;
-            transition: border-color 0.2s ease !important;
+            padding: 1rem !important;
+            background: #ffffff !important;
+            border: 1px solid #e2e8f0 !important;
+            color: #334155 !important;
+            font-size: 0.88rem !important;
+            min-height: 85px !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.02) !important;
+            transition: all 0.2s ease !important;
         }
-        [data-testid="stFileUploader"] section:hover {
+        /* Forces the text inside the button card to wrap properly */
+        div:has(> #recent-chips-target) + div[data-testid="stHorizontalBlock"] .stButton > button p {
+            white-space: normal !important;
+            line-height: 1.4 !important;
+            margin: 0 !important;
+        }
+        div:has(> #recent-chips-target) + div[data-testid="stHorizontalBlock"] .stButton > button:hover {
             border-color: #94a3b8 !important;
-        }
-
-        hr { border-color: #e2e8f0 !important; margin: 0.75rem 0 !important; }
-        ::-webkit-scrollbar { width: 5px; height: 5px; }
-        ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
-        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
-        .stMultiSelect, .stSelectbox { font-size: 0.88rem !important; }
-        [data-testid="stPopover"] summary > svg:last-of-type { display: none !important; }
-
-        [data-testid="stVerticalBlock"] [data-testid="stVerticalBlock"] div[data-testid="stHorizontalBlock"] > div {
-            transition: transform 0.2s ease !important;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.06) !important;
+            transform: translateY(-2px) !important;
+            background: #f8fafc !important;
         }
         </style>
     """, unsafe_allow_html=True)
-
 
 def chunk_text(text: str, chunk_size: int = 300) -> list:
     words = text.split()
@@ -483,7 +712,7 @@ def initialize_session_state():
         with loading_placeholder.container():
             render_loading_screen()
         try:
-            st.session_state.query_system = AIQuerySystem()
+            st.session_state.query_system = AIQuerySystem(load_sample_schemas=False)
         except Exception as e:
             st.error(f"Initialization failed: {str(e)}")
             st.session_state.query_system = None
@@ -495,6 +724,9 @@ def initialize_session_state():
     if "chat_sessions" not in st.session_state:
         load_chat_sessions()
         st.session_state.active_filters = [st.session_state.current_session_id]
+
+    if "target_source" not in st.session_state:
+        st.session_state.target_source = None
 
     st.session_state.messages = st.session_state.chat_sessions[st.session_state.current_session_id]
 
@@ -549,7 +781,15 @@ def parse_and_add_documents(uploaded_files):
             tmp_path = tmp.name
 
         try:
-            result = system.upload_file(tmp_path, original_file_name=uploaded_file.name)
+         
+            
+            result = system.upload_file(
+                tmp_path,
+                original_file_name=uploaded_file.name,
+                user_email=st.session_state.get("user_email"),
+                session_id=st.session_state.get("current_session_id"),
+                upload_ts=datetime.now(timezone.utc).isoformat(),
+            )
             result["file_name"] = uploaded_file.name
 
             if result["success"]:
@@ -565,8 +805,9 @@ def parse_and_add_documents(uploaded_files):
 
     total = len(uploaded_files)
     success_count = len(results["structured"]) + len(results["unstructured"])
+    total_unstructured_chunks = sum(int(r.get("chunk_count", 0)) for r in results["unstructured"])
 
-    # Update MongoDB explicitly with new documents so visibility restricts properly
+    
     user_email = st.session_state.get("user_email")
     if user_email:
         new_docs = []
@@ -589,130 +830,42 @@ def parse_and_add_documents(uploaded_files):
     else:
         st.toast("All files failed to ingest", icon=":material/error:")
 
-def render_sidebar():
-    with st.sidebar:
-        st.markdown("""
-            <div style="padding:0.3rem 0 1rem 0; border-bottom:1px solid #e2e8f0; margin-bottom:1rem;">
-                <p style="font-size:0.7rem; font-weight:700; letter-spacing:2px;
-                          text-transform:uppercase; color:#94a3b8; margin:0 0 0.1rem 0;">
-                    Enterprise
-                </p>
-                <span style="font-family:'Inter',sans-serif; font-weight:700; font-size:1rem;
-                             color:#0f172a; letter-spacing:-0.3px;">
-                    Nexus Intelligence
-                </span>
-            </div>
-        """, unsafe_allow_html=True)
-        st.markdown("""
-            <p style="font-size:0.7rem; font-weight:600; letter-spacing:1.5px;
-                      text-transform:uppercase; color:#94a3b8; margin:0 0 0.5rem 0.1rem;">
-                Conversations
-            </p>
-        """, unsafe_allow_html=True)
-
-        if st.button("New Chat", icon=":material/add:", type="primary", use_container_width=True):
-            st.session_state.session_counter += 1
-            new_id = f"Session {st.session_state.session_counter}"
-            st.session_state.chat_sessions[new_id] = []
-            st.session_state.current_session_id = new_id
-            save_chat_sessions()
-            st.rerun()
-
-        st.markdown("<br>", unsafe_allow_html=True)
-        st.markdown("<br>", unsafe_allow_html=True)
-        st.header("Context Filter")
-
-        # Get user's authorized docs for the dropdown
-        user_email = st.session_state.get("user_email")
-        user_record = users_collection.find_one({"email": user_email}) if user_email else None
-        user_docs = user_record.get("documents", []) if user_record else []
-
-        # Clean up doc names for the UI
-        clean_docs = [d.get("file_name", "") if isinstance(d, dict) else str(d) for d in user_docs]
-        clean_docs = [d for d in clean_docs if d and d != "unknown"]
-
-        options = ["All Documents"] + sorted(list(set(clean_docs)))
-
-        selected_source = st.selectbox(
-            "Target specific document:",
-            options,
-            help="Force the AI to only read from this specific file.",
-            label_visibility="collapsed"
+    # Explicit ingestion confirmation so users can verify chunk indexing succeeded.
+    if results["unstructured"]:
+        per_file = []
+        for r in results["unstructured"]:
+            name = r.get("file_name", "unknown")
+            chunks = int(r.get("chunk_count", 0))
+            per_file.append(f"{name}: {chunks} chunks")
+        st.success(
+            f"RAG chunks indexed: {total_unstructured_chunks} total | " + " | ".join(per_file),
+            icon=":material/dataset:",
         )
 
-        # Save to session state
-        st.session_state.target_source = selected_source if selected_source != "All Documents" else None
-        st.divider()
-        # ---------------------------------------------
-        st.header("Chat History")
+    if results["structured"]:
+        per_table = []
+        for r in results["structured"]:
+            name = r.get("file_name", "unknown")
+            rows = int(r.get("row_count", 0))
+            per_table.append(f"{name}: {rows} rows")
+        st.info(
+            "Structured files loaded: " + " | ".join(per_table),
+            icon=":material/table_chart:",
+        )
 
-        for session_id in reversed(list(st.session_state.chat_sessions.keys())):
-            title = session_id
-            session_messages = st.session_state.chat_sessions[session_id]
-            if len(session_messages) > 0 and session_messages[0]["role"] == "user":
-                title_text = session_messages[0]["content"][:25] + ("..." if len(session_messages[0]["content"]) > 25 else "")
-                title = f"{title_text}"
+    if results["failed"]:
+        failed_summary = " | ".join(
+            f"{r.get('file_name', 'unknown')}: {r.get('message', 'Failed')}"
+            for r in results["failed"]
+        )
+        st.error(f"Ingest failures: {failed_summary}", icon=":material/error:")
 
-            icon = ":material/chat_bubble:" if session_id == st.session_state.current_session_id else ":material/chat_bubble_outline:"
+    # Auto-shift context to the newest successfully ingested file.
+    successful_files = [r.get("file_name") for r in (results["structured"] + results["unstructured"]) if r.get("file_name")]
+    if successful_files:
+        st.session_state.target_source = successful_files[-1]
+        st.toast(f"Context switched to latest file: {successful_files[-1]}", icon=":material/description:")
 
-            if st.button(title, key=f"btn_{session_id}", icon=icon, type="tertiary", use_container_width=True):
-                st.session_state.current_session_id = session_id
-                st.rerun()
-
-        st.markdown("<br>" * 3, unsafe_allow_html=True)
-
-        with st.expander("Settings & Resources", icon=":material/settings:", expanded=False):
-            st.caption("System Resources")
-            if st.session_state.query_system:
-                stats = st.session_state.query_system.get_stats()
-                c1, c2, c3 = st.columns(3)
-                with c1: st.metric("Cache", stats['cache_stats']['total_entries'])
-                with c2: st.metric("Docs", stats['tag_collections']['documents'])
-                with c3: st.metric("Schemas", stats['tag_collections']['schemas'])
-
-                uploads = st.session_state.query_system.list_uploads()
-
-                # Fetch only user owned documents for sidebar display visibility
-                user_email = st.session_state.get("user_email")
-                user_record = users_collection.find_one({"email": user_email}) if user_email else None
-                user_docs = user_record.get("documents", []) if user_record else []
-
-                filtered_docs = [d for d in uploads.get("documents", []) if d.get("file_name", d["id"]) in user_docs]
-
-                if uploads["schemas"] or filtered_docs:
-                    with st.expander("Loaded Data Sources", icon=":material/database:"):
-                        if uploads["schemas"]:
-                            st.caption("SQL Tables")
-                            for s in uploads["schemas"]:
-                                st.markdown(f"- `{s}`")
-                        if filtered_docs:
-                            st.caption("RAG Documents")
-                            seen_files = set()
-                            for d in filtered_docs:
-                                fname = d.get("file_name", d["id"])
-                                if fname not in seen_files:
-                                    seen_files.add(fname)
-                                    st.markdown(f"- {fname}")
-
-                if st.button("Clear Cache", icon=":material/mop:", use_container_width=True):
-                    count = st.session_state.query_system.cache.clear()
-                    st.toast(f"Cleared {count} cache entries", icon=":material/check:")
-                if st.button("Clear Current Chat", icon=":material/clear_all:", use_container_width=True):
-                    st.session_state.chat_sessions[st.session_state.current_session_id] = []
-                    save_chat_sessions()
-                    st.rerun()
-
-                st.divider()
-                if st.button("Logout", icon=":material/logout:", use_container_width=True):
-                    st.session_state.authenticated = False
-                    st.session_state.user_email = None
-                    st.session_state.user_name = None
-                    st.session_state.chat_sessions = {}
-                    st.session_state.messages = []
-                    _reset_local_session()
-                    st.rerun()
-            else:
-                st.warning("System Offline")
 
 def render_auth_screen():
     st.markdown("""
@@ -776,168 +929,206 @@ def render_auth_screen():
                         load_chat_sessions()
                         st.rerun()
 
+
+
+def render_sidebar():
+    with st.sidebar:
+        st.markdown("""
+            <div style="margin-top: -2.5rem; padding: 1rem 0 1rem 0; border-bottom:1px solid #e2e8f0; margin-bottom:1rem;">
+                <p style="font-size:0.7rem; font-weight:700; letter-spacing:2px;
+                          text-transform:uppercase; color:#94a3b8; margin:0 0 0.1rem 0;">
+                    Enterprise
+                </p>
+                <span style="font-family:'Inter',sans-serif; font-weight:700; font-size:1rem;
+                             color:#0f172a; letter-spacing:-0.3px;">
+                    Nexus Intelligence
+                </span>
+            </div>
+        """, unsafe_allow_html=True)
+        
+        st.markdown("""
+            <p style="font-size:0.7rem; font-weight:600; letter-spacing:1.5px;
+                      text-transform:uppercase; color:#94a3b8; margin:0 0 0.5rem 0.1rem;">
+                Conversations
+            </p>
+        """, unsafe_allow_html=True)
+
+        if st.button("New Chat", icon=":material/add:", type="primary", use_container_width=True):
+            st.session_state.session_counter += 1
+            new_id = f"Session {st.session_state.session_counter}"
+            st.session_state.chat_sessions[new_id] = []
+            st.session_state.current_session_id = new_id
+            save_chat_sessions()
+            st.rerun()
+
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.header("Context Filter")
+
+        user_email = st.session_state.get("user_email")
+        user_record = users_collection.find_one({"email": user_email}) if user_email else None
+        user_docs = user_record.get("documents", []) if user_record else []
+
+        raw_docs = [d.get("file_name", "") if isinstance(d, dict) else str(d) for d in user_docs]
+        clean_docs = []
+        for doc_name in raw_docs:
+            doc_name = str(doc_name).strip()
+            if doc_name and doc_name != "unknown" and doc_name not in clean_docs:
+                clean_docs.append(doc_name)
+
+        options = ["Select a file"] + clean_docs
+        current_target = st.session_state.get("target_source")
+        if current_target in clean_docs:
+            default_index = options.index(current_target)
+        elif clean_docs:
+            default_index = len(options) - 1
+            st.session_state.target_source = clean_docs[-1]
+        else:
+            default_index = 0
+            st.session_state.target_source = None
+
+        selected_source = st.selectbox(
+            "Target specific document:",
+            options,
+            index=default_index,
+            help="Force the AI to only read from this specific file.",
+            label_visibility="collapsed"
+        )
+
+        st.session_state.target_source = selected_source if selected_source != "Select a file" else None
+
+        if not clean_docs:
+            st.caption("No files available. Upload a file to enable querying.")
+            
+        st.divider()
+        st.header("Chat History")
+
+        for session_id in reversed(list(st.session_state.chat_sessions.keys())):
+            title = session_id
+            session_messages = st.session_state.chat_sessions[session_id]
+            if len(session_messages) > 0 and session_messages[0]["role"] == "user":
+                title_text = session_messages[0]["content"][:25] + ("..." if len(session_messages[0]["content"]) > 25 else "")
+                title = f"{title_text}"
+
+            icon = ":material/chat_bubble:" if session_id == st.session_state.current_session_id else ":material/chat_bubble_outline:"
+
+            if st.button(title, key=f"btn_{session_id}", icon=icon, type="tertiary", use_container_width=True):
+                st.session_state.current_session_id = session_id
+                st.rerun()
+
+       
+        with st.popover("Settings", icon=":material/settings:", use_container_width=True):
+            
+           
+            user_name = st.session_state.get("user_name", "User")
+            user_email = st.session_state.get("user_email", "No email")
+            
+            
+            name_parts = user_name.split()
+            initials = ""
+            if len(name_parts) >= 2:
+                initials = (name_parts[0][0] + name_parts[1][0]).upper()
+            elif len(name_parts) == 1:
+                initials = name_parts[0][:2].upper()
+            else:
+                initials = "U"
+                
+           
+            profile_html = f"""
+            <div style="display:flex; align-items:center; gap:14px; padding:6px 2px 18px 2px;">
+                <div style="width:46px; height:46px; border-radius:50%; background-color:#475569; color:#ffffff; display:flex; align-items:center; justify-content:center; font-family:'Inter', sans-serif; font-weight:600; font-size:1.1rem; box-shadow:0 2px 5px rgba(0,0,0,0.1);">
+                    {initials}
+                </div>
+                <div style="display:flex; flex-direction:column; font-family:'Inter', sans-serif;">
+                    <span style="font-weight:600; color:#0f172a; font-size:1rem; line-height:1.2;">{user_name}</span>
+                    <span style="color:#64748b; font-size:0.8rem; margin-top:2px;">{user_email}</span>
+                </div>
+            </div>
+            """
+            st.markdown(profile_html, unsafe_allow_html=True)
+            
+            # Action Buttons
+            if st.button("Clear Current Chat", icon=":material/clear_all:", use_container_width=True):
+                st.session_state.chat_sessions[st.session_state.current_session_id] = []
+                save_chat_sessions()
+                st.rerun()
+
+            if st.button("Logout", icon=":material/logout:", use_container_width=True):
+                st.session_state.authenticated = False
+                st.session_state.user_email = None
+                st.session_state.user_name = None
+                st.session_state.chat_sessions = {}
+                st.session_state.messages = []
+                _reset_local_session()
+                st.rerun()
+
+
 def render_welcome_screen():
     user_name = st.session_state.get("user_name", "")
-    greeting = f"Hello, {user_name.split()[0]}." if user_name else "Hello."
+    first_name = user_name.split()[0] if user_name else "User"
 
+    # Animated Welcome Layout (Floating effect + Gradient text)
     st.markdown(f"""
-        <div style="text-align:center; margin-top:3.5rem; margin-bottom:2rem; animation: fadeInUp 0.5s ease-out;">
-            <p style="font-size:0.75rem; font-weight:600; letter-spacing:2px; text-transform:uppercase;
-                      color:#94a3b8; margin-bottom:0.5rem;">Nexus Intelligence</p>
-            <h2 style="font-size:2rem; font-weight:700; color:#0f172a;
-                       letter-spacing:-0.5px; margin-bottom:0.5rem;">{greeting}</h2>
-            <p style="color:#94a3b8; font-size:0.9rem;">
-                Ask anything about your data — structured or unstructured.
+        <div style="text-align:center; margin-top:3rem; margin-bottom:3.5rem; animation: fadeInUp 0.8s ease-out, float 5s ease-in-out infinite;">
+            <div style="display:inline-block; padding:0.4rem 1.2rem; background:#f8fafc; border: 1px solid #e2e8f0; border-radius:50px; color:#475569; font-size:0.75rem; font-weight:700; letter-spacing:1px; text-transform:uppercase; margin-bottom:1.5rem; box-shadow: 0 2px 5px rgba(0,0,0,0.02);">
+                Semantic Search Engine
+            </div>
+            <h1 style="font-size:3.2rem; font-weight:800; letter-spacing:-1.5px; margin-bottom:0.5rem; line-height: 1.2; background: linear-gradient(270deg, #0f172a, #3b82f6, #0f172a); background-size: 200% 200%; -webkit-background-clip: text; -webkit-text-fill-color: transparent; animation: gradientFlow 6s ease infinite;">
+                Nexus Intelligence
+            </h1>
+            <h2 style="font-size:2rem; font-weight:600; color:#334155; margin-bottom:1rem; letter-spacing:-0.5px;">
+                Hello, {first_name}.
+            </h2>
+            <p style="color:#64748b; font-size:1.05rem; max-width:550px; margin:0 auto; line-height:1.6;">
+                Ask anything about your data. Seamlessly query structured tables and unstructured documents using natural language.
             </p>
         </div>
     """, unsafe_allow_html=True)
 
-    examples = [
-        ("Customer Insights",   ":material/people:",      "How many customers do we have?"),
-        ("Financial Overview",  ":material/payments:",    "What is the total generated revenue?"),
-        ("Operations Update",   ":material/inventory_2:", "Show me the 5 most recent orders"),
-    ]
-
+    # 1. Fetch up to 3 most recent unique user queries
     recent_searches, seen = [], set()
-    base_queries = {e[2] for e in examples}
     for s_id, msgs in reversed(st.session_state.chat_sessions.items()):
         for m in reversed(msgs):
-            if m["role"] == "user" and m["content"] not in seen and m["content"] not in base_queries:
+            if m["role"] == "user" and m["content"] not in seen:
                 seen.add(m["content"])
-                recent_searches.append((s_id, m["content"]))
+                recent_searches.append(m["content"])
+                if len(recent_searches) == 3:
+                    break
+        if len(recent_searches) == 3:
+            break
 
-    if len(recent_searches) >= 1:
-        examples[0] = (f"From {recent_searches[0][0]}", ":material/history:", recent_searches[0][1])
-    if len(recent_searches) >= 2:
-        examples[1] = (f"From {recent_searches[1][0]}", ":material/history:", recent_searches[1][1])
-    if len(recent_searches) >= 3:
-        examples[2] = (f"From {recent_searches[2][0]}", ":material/history:", recent_searches[2][1])
+    # 2. Define our fallback defaults
+    defaults = [
+        "How many customers do we have?",
+        "What is the total generated revenue?",
+        "Show me the 5 most recent orders"
+    ]
 
+    # 3. Combine them intelligently
+    examples = []
+    for query in recent_searches:
+        examples.append(query)
+        
+    for default_query in defaults:
+        if len(examples) < 3 and default_query not in examples:
+            examples.append(default_query)
+
+    # Render the Uniform Cards
+    st.markdown("<p style='text-align:center; font-size:0.8rem; color:#94a3b8; font-weight:600; text-transform:uppercase; margin-bottom:0.5rem;'>Recent & Suggested</p>", unsafe_allow_html=True)
+    
+    # Hidden anchor triggers the card CSS
+    st.markdown('<div id="recent-chips-target"></div>', unsafe_allow_html=True)
     col1, col2, col3 = st.columns(3)
-
-    # 1. ADD 'enumerate' to get a unique index 'i' for each item
-    for i, ((name, icon, query), col) in enumerate(zip(examples, [col1, col2, col3])):
+    
+    for i, (query, col) in enumerate(zip(examples, [col1, col2, col3])):
         with col:
-            with st.container(border=True):
-                st.markdown(f"""
-                    <p style="font-size:0.75rem; font-weight:600; letter-spacing:1px;
-                              text-transform:uppercase; color:#94a3b8; margin-bottom:0.2rem;">
-                        {name}
-                    </p>
-                    <p style="font-size:0.88rem; color:#334155; margin:0; line-height:1.5;">
-                        "{query[:55]}{'...' if len(query)>55 else ''}"
-                    </p>
-                """, unsafe_allow_html=True)
-                st.write("")
-
-                # 2. FIX: Use 'i' in the key so it is always 100% unique (ex_btn_0, ex_btn_1, etc.)
-                if st.button("Run query", icon=icon, key=f"ex_btn_{i}", use_container_width=True):
-                    st.session_state.messages.append({"role": "user", "content": query})
-                    save_chat_sessions()
-                    st.rerun()
-
-# import streamlit.components.v1 as components
-
-# def inject_mentions_js(schemas):
-#     """Injects a highly customized JS popover for @mentions in st.chat_input."""
-#     js_schemas = json.dumps(schemas)
-#     js_code = f"""
-#     <script>
-#     (function() {{
-#         const schemas_str = JSON.stringify({js_schemas});
-#         const parentDoc = window.parent.document;
-
-#         // Dynamically update schemas on the parent scope so closures stay fresh
-#         parentDoc.mentionSchemas = JSON.parse(schemas_str);
-
-#         function initMentionPopup() {{
-#             let popup = parentDoc.getElementById("mention-popup");
-#             if (!popup) {{
-#                 popup = parentDoc.createElement("div");
-#                 popup.id = "mention-popup";
-#                 popup.style.cssText = "display: none; position: absolute; z-index: 999999; background: white; border: 1px solid #e2e8f0; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); max-height: 200px; overflow-y: auto; min-width: 200px;";
-#                 parentDoc.body.appendChild(popup);
-#             }}
-
-#             if (parentDoc.body.dataset.mentionsBound === "true") return;
-#             parentDoc.body.dataset.mentionsBound = "true";
-
-#             parentDoc.body.addEventListener('input', function(e) {{
-#                 if (e.target.tagName !== 'TEXTAREA') return;
-
-#                 let textarea = e.target;
-#                 let val = textarea.value;
-
-#                 let chatInputContainer = e.target.closest('div[data-testid="stChatInput"]');
-#                 if (!chatInputContainer) {{
-#                    chatInputContainer = textarea.parentElement;
-#                 }}
-
-#                 let cursorStart = textarea.selectionStart;
-#                 let textBeforeCursor = val.substring(0, cursorStart);
-
-#                 let lastAt = textBeforeCursor.lastIndexOf('@');
-#                 if (lastAt !== -1) {{
-#                     let searchStr = textBeforeCursor.substring(lastAt + 1);
-#                     if (!searchStr.includes(' ')) {{
-#                         let currentSchemas = parentDoc.mentionSchemas || [];
-#                         let matches = currentSchemas.filter(s => s.toLowerCase().startsWith(searchStr.toLowerCase()));
-
-#                         if (matches.length > 0) {{
-#                             popup.innerHTML = "";
-#                             matches.forEach(m => {{
-#                                 let div = parentDoc.createElement("div");
-#                                 div.innerText = "@" + m;
-#                                 div.style.cssText = "padding: 8px 12px; cursor: pointer; font-family: Inter, sans-serif; font-size: 14px; color: #1e293b; border-bottom: 1px solid #f1f5f9; background: white;";
-#                                 div.onmouseover = () => div.style.backgroundColor = "#f1f5f9";
-#                                 div.onmouseout = () => div.style.backgroundColor = "white";
-#                                 div.onclick = () => {{
-#                                     let beforeAt = val.substring(0, lastAt);
-#                                     let afterCursor = val.substring(cursorStart);
-#                                     let newVal = beforeAt + "@" + m + " " + afterCursor;
-
-#                                     const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.parent.HTMLTextAreaElement.prototype, "value").set;
-#                                     nativeInputValueSetter.call(textarea, newVal);
-#                                     textarea.dispatchEvent(new Event('input', {{ bubbles: true }}));
-
-#                                     popup.style.display = "none";
-#                                     textarea.focus();
-
-#                                     setTimeout(() => {{
-#                                         textarea.selectionStart = textarea.selectionEnd = beforeAt.length + m.length + 2;
-#                                     }}, 20);
-#                                 }};
-#                                 popup.appendChild(div);
-#                             }});
-
-#                             let rect = chatInputContainer.getBoundingClientRect();
-#                             if (rect.top === 0 && rect.left === 0) {{
-#                                 rect = textarea.getBoundingClientRect();
-#                             }}
-
-#                             popup.style.left = Math.max(0, rect.left) + "px";
-#                             let topPos = rect.top + parentDoc.defaultView.scrollY - Math.min(matches.length * 37, 200) - 10;
-#                             popup.style.top = Math.max(0, topPos) + "px";
-#                             popup.style.display = "block";
-#                             return;
-#                         }}
-#                     }}
-#                 }}
-#                 popup.style.display = "none";
-#             }});
-
-#             parentDoc.addEventListener('click', function(e) {{
-#                if (!popup.contains(e.target)) {{
-#                    popup.style.display = "none";
-#                }}
-#             }});
-#         }}
-
-#         initMentionPopup();
-#     }})();
-#     </script>
-#     """
-#     components.html(js_code, height=0, width=0)
+            # Shortened slightly to fit nicely within cards
+            short_query = query[:55] + "..." if len(query) > 55 else query
+            
+            # use_container_width ensures they are all uniformly sized columns
+            if st.button(f'{short_query}', icon=":material/history:", key=f"ex_btn_{i}", use_container_width=True):
+                st.session_state.messages.append({"role": "user", "content": query})
+                save_chat_sessions()
+                st.rerun()
 
 import time
 import streamlit.components.v1 as components
@@ -1054,6 +1245,29 @@ def inject_mentions_js(schemas):
     """
     components.html(js_code, height=0, width=0)
 
+    import base64
+
+def get_user_avatar(user_name):
+    """Recreates the Settings profile avatar as an image for the chat."""
+    name_parts = user_name.split() if user_name else []
+    if len(name_parts) >= 2:
+        initials = (name_parts[0][0] + name_parts[1][0]).upper()
+    elif len(name_parts) == 1:
+        initials = name_parts[0][:2].upper()
+    else:
+        initials = "U"
+        
+    svg = f"""
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+        <circle cx="50" cy="50" r="50" fill="#475569" />
+        <text x="50" y="50" font-family="Inter, Arial, sans-serif" font-size="40" font-weight="600" fill="#ffffff" dominant-baseline="central" text-anchor="middle">
+            {initials}
+        </text>
+    </svg>
+    """
+    b64 = base64.b64encode(svg.encode('utf-8')).decode('utf-8')
+    return f"data:image/svg+xml;base64,{b64}"
+
 def main():
     """Main Streamlit application."""
     inject_custom_css()
@@ -1103,20 +1317,7 @@ def main():
         render_auth_screen()
         return
 
-    # Authorized Content Below
-    st.title("Nexus Intelligence")
-    st.markdown("""
-        <div style="text-align:center; padding:0.5rem 0 0.25rem 0;">
-            <p style="font-size:0.7rem; font-weight:700; letter-spacing:2.5px;
-                      text-transform:uppercase; color:#94a3b8; margin-bottom:0.3rem;">
-                Enterprise · AI-Powered
-            </p>
-            <p style="font-size:0.82rem; color:#94a3b8; margin-top:0.2rem; letter-spacing:0.5px;">
-                Natural language · Semantic search · SQL generation
-            </p>
-        </div>
-        <hr style="margin:0.75rem 0 1rem 0; border-color:#e2e8f0;">
-    """, unsafe_allow_html=True)
+ 
 
     render_sidebar()
     if len(st.session_state.messages) == 0:
@@ -1143,14 +1344,24 @@ def main():
 
                     if "lineage" in message:
                         display_lineage(message["lineage"])
+            # else:
+            #     with st.chat_message(message["role"]):
+            #         st.write(message["content"])
             else:
-                with st.chat_message(message["role"]):
+                # Grab the user's name and generate their matching profile avatar
+                user_name = st.session_state.get("user_name", "User")
+                custom_avatar = get_user_avatar(user_name)
+                
+                with st.chat_message(message["role"], avatar=custom_avatar):
                     st.write(message["content"])
 
     st.write("")
 
+    # prompt = None
+    # input_col, attach_col = st.columns([1.2, 15], vertical_alignment="bottom")
     prompt = None
-    input_col, attach_col = st.columns([1.2, 15], vertical_alignment="bottom")
+    # Adjusted weights so the icon sits tighter against the input bar
+    input_col, attach_col = st.columns([1, 14], gap="small", vertical_alignment="bottom")
     with input_col:
         with st.popover("", icon=":material/attach_file:", use_container_width=True):
             st.markdown("**Knowledge & Context Management**")
@@ -1184,6 +1395,9 @@ def main():
         prompt = st.chat_input("Enter a prompt here")
 
     if prompt:
+        if not st.session_state.get("target_source"):
+            st.toast("Please add a file in the sidebar and select it from Context Filter.", icon=":material/warning:")
+            return
         st.session_state.messages.append({"role": "user", "content": prompt})
         save_chat_sessions()
         st.rerun()
@@ -1201,16 +1415,33 @@ def main():
                         user_record = users_collection.find_one({"email": st.session_state.user_email}) if st.session_state.get("user_email") else None
                         authorized_docs = user_record.get("documents", []) if user_record else []
 
+                       
                         response = st.session_state.query_system.run_pipeline(
                             user_query=user_prompt,
                             context_filter=context_filter,
                             authorized_docs=authorized_docs,
-                            target_source=st.session_state.get("target_source")
+                            target_source=st.session_state.get("target_source"),
+                            user_email=st.session_state.get("user_email"),
                         )
+                        docs_count = len(getattr(response, "raw_docs", []) or [])
+                        selected_target = st.session_state.get("target_source") or "All Documents"
+                        st.caption(
+                            f"Route: {response.lineage.route.upper()} | Target: {selected_target} | Retrieved Chunks: {docs_count}"
+                            )
                         st.write(response.answer)
+                        if response.lineage.route in ["sql", "both"] and getattr(response, "execution_error", None):
+                            st.error(
+                                f"SQL execution failed in app context: {response.execution_error}",
+                                icon=":material/error:",
+                            )
                         if response.lineage.cache_hit:
                             st.toast("Answered from Cache", icon=":material/bolt:")
                         display_lineage(response.lineage)
+                        if response.lineage.route in ["rag", "both"] and not (getattr(response, "raw_docs", None) or []):
+                            st.warning(
+                            "No document chunks matched current filters. Try 'All Documents' or adjust session filters.",
+                            icon=":material/warning:",
+                            )
 
                         st.session_state.messages.append({
                             "role": "assistant",
