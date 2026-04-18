@@ -269,6 +269,40 @@ class TestStoryteller:
         assert response.answer == "Test answer"
         assert len(response.raw_results) == 1
 
+    def test_storyteller_sql_rows_override_fallback(self):
+        """If SQL rows exist, fallback text should not be returned."""
+        from layers.layer6_storyteller import Storyteller
+
+        with patch("layers.layer6_storyteller.GroqClient"):
+            storyteller = Storyteller(api_key="dummy")
+            with patch.object(storyteller, "_generate_answer", return_value=storyteller.FALLBACK_TEXT):
+                answer = storyteller.tell(
+                    user_question="Top customers",
+                    sql_results=[{"customer_id": "C002"}, {"customer_id": "C001"}, {"customer_id": "C007"}],
+                    route="sql",
+                )
+
+        assert storyteller.FALLBACK_TEXT not in answer
+        assert "C002" in answer
+
+    def test_storyteller_sql_rows_mixed_fallback_text(self):
+        """Even if model adds extra text around fallback, deterministic SQL answer should win."""
+        from layers.layer6_storyteller import Storyteller
+
+        bad_answer = "I do not have enough information in the current data to answer that. The SQL results are unclear."
+
+        with patch("layers.layer6_storyteller.GroqClient"):
+            storyteller = Storyteller(api_key="dummy")
+            with patch.object(storyteller, "_generate_answer", return_value=bad_answer):
+                answer = storyteller.tell(
+                    user_question="Top customers",
+                    sql_results=[{"customer_id": "C002"}],
+                    route="sql",
+                )
+
+        assert storyteller.FALLBACK_TEXT not in answer
+        assert "C002" in answer
+
 
 class TestPipelineIntegration:
     """Integration tests for the main pipeline."""
@@ -311,6 +345,87 @@ class TestPipelineIntegration:
                                 assert "cache" in health
                                 assert "executor" in health
 
+
+class TestRAGIsolation:
+    def _make_system_instance(self):
+        from main_pipeline import AIQuerySystem
+        return AIQuerySystem.__new__(AIQuerySystem)
+
+    def test_cache_key_changes_by_target_source(self):
+        system = self._make_system_instance()
+        k1 = system._build_cache_key(
+            "q", "rag", "a@x.com", "doc1.pdf", {"session_id": {"$in": ["S1"]}}, ["doc1.pdf"]
+        )
+        k2 = system._build_cache_key(
+            "q", "rag", "a@x.com", "doc2.pdf", {"session_id": {"$in": ["S1"]}}, ["doc2.pdf"]
+        )
+        assert k1 != k2
+
+    def test_doc_where_filter_includes_user_and_session(self):
+        system = self._make_system_instance()
+        wf = system._build_doc_where_filter(
+            user_email="a@x.com",
+            authorized_docs=["doc1.pdf"],
+            target_source=None,
+            context_filter={"session_id": {"$in": ["Session 1"]}},
+        )
+        assert wf is not None
+        assert "$and" in wf
+
+    def test_doc_where_filter_normalizes_legacy_doc_records(self):
+        system = self._make_system_instance()
+        wf = system._build_doc_where_filter(
+            user_email="a@x.com",
+            authorized_docs=[{"file_name": "doc1.pdf"}, "doc2.pdf"],
+            target_source=None,
+            context_filter={"session_id": {"$in": ["Session 1"]}},
+        )
+        assert wf is not None
+        assert "$and" in wf
+        assert {"file_name": {"$in": ["doc1.pdf", "doc2.pdf"]}} in wf["$and"]
+
+    def test_cache_hit_returns_when_results_none(self):
+        from main_pipeline import AIQuerySystem
+
+        system = self._make_system_instance()
+        system.logger = MagicMock()
+        system.cache = MagicMock()
+        system.cache.get.return_value = {
+            "answer": "Cached RAG answer",
+            "similarity": 0.99,
+            "metadata": {"route": "rag", "results": None, "docs": [{"id": "d1"}]},
+        }
+        system.storyteller = MagicMock()
+        system.storyteller.create_lineage.return_value = MagicMock()
+
+        response = AIQuerySystem.run_pipeline(system, user_query="same question")
+
+        assert response.answer == "Cached RAG answer"
+        assert response.raw_results is None
+        assert response.raw_docs == [{"id": "d1"}]
+
+    def test_cache_write_stores_pre_route_and_route_keys(self):
+        from main_pipeline import AIQuerySystem
+
+        system = self._make_system_instance()
+        system.logger = MagicMock()
+        system.config = {"tag": {"top_k_schemas": 5}}
+        system.cache = MagicMock()
+        system.cache.get.return_value = None
+        system.router = MagicMock()
+        system.router.route.return_value = {"route": "rag", "schemas": []}
+        system.tag = MagicMock()
+        system.tag.retrieve_documents.return_value = [{"id": "d1", "content": "doc text", "metadata": {}}]
+        system.storyteller = MagicMock()
+        system.storyteller.tell.return_value = "Answer from docs"
+        system.storyteller.create_lineage.return_value = MagicMock()
+
+        response = AIQuerySystem.run_pipeline(system, user_query="same question")
+
+        assert response.answer == "Answer from docs"
+        assert system.cache.set.call_count == 2
+        written_keys = [call.args[0] for call in system.cache.set.call_args_list]
+        assert len(set(written_keys)) == 2
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

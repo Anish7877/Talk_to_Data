@@ -5,7 +5,9 @@
 DO $$
 BEGIN
     CREATE ROLE ai_readonly LOGIN;
-EXCEPTION WHEN duplicate_object THEN NULL;
+EXCEPTION
+    WHEN duplicate_object THEN NULL;
+    WHEN unique_violation THEN NULL;
 END $$;
 
 ALTER ROLE ai_readonly WITH PASSWORD '1234';

@@ -12,6 +12,7 @@ import logging
 import hashlib
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Tuple
+from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
 
@@ -176,20 +177,64 @@ class UnstructuredFileLoader:
         except ImportError:
             raise ImportError("python-docx is required for DOCX support.")
 
-    def chunk_text(self, text: str, chunk_size: int = 500, chunk_overlap: int = 50) -> List[str]:
-        words  = text.split()
-        chunks = []
-        start  = 0
+    # def chunk_text(self, text: str, chunk_size: int = 500, chunk_overlap: int = 50) -> List[str]:
+    #     words  = text.split()
+    #     chunks = []
+    #     start  = 0
 
-        while start < len(words):
-            end   = min(start + chunk_size, len(words))
-            chunk = " ".join(words[start:end])
-            if chunk.strip():
-                chunks.append(chunk)
-            if end == len(words):
-                break
-            start = end - chunk_overlap
-        return chunks
+    #     while start < len(words):
+    #         end   = min(start + chunk_size, len(words))
+    #         chunk = " ".join(words[start:end])
+    #         if chunk.strip():
+    #             chunks.append(chunk)
+    #         if end == len(words):
+    #             break
+    #         start = end - chunk_overlap
+    #     return chunks
+
+
+
+    def chunk_text(self, text: str, chunk_size: int = 500, chunk_overlap: int = 50) -> List[str]:
+        paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
+        if not paragraphs:
+            return []
+
+        chunks: List[str] = []
+        current_words: List[str] = []
+
+        def flush_current():
+            if current_words:
+                chunks.append(" ".join(current_words).strip())
+
+        for para in paragraphs:
+            para_words = para.split()
+
+            # If one paragraph is too large, split internally
+            if len(para_words) > chunk_size:
+                flush_current()
+                current_words = []
+                start = 0
+                while start < len(para_words):
+                    end = min(start + chunk_size, len(para_words))
+                    piece = " ".join(para_words[start:end]).strip()
+                    if piece:
+                        chunks.append(piece)
+                    if end == len(para_words):
+                        break
+                    start = max(0, end - chunk_overlap)
+                continue
+
+            # Merge paragraphs into chunk up to chunk_size
+            if len(current_words) + len(para_words) <= chunk_size:
+                current_words.extend(para_words)
+            else:
+                flush_current()
+                # overlap carry
+                overlap_words = current_words[-chunk_overlap:] if chunk_overlap > 0 else []
+                current_words = overlap_words + para_words
+
+        flush_current()
+        return [c for c in chunks if c]
 
 
 # ---------------------------------------------------------------------------
@@ -218,8 +263,33 @@ class DocumentProcessor:
             from sqlalchemy import create_engine
             self._admin_engine = create_engine(admin_db_url, pool_pre_ping=True)
 
-    def process(self, file_path: str, original_file_name: Optional[str] = None) -> Dict[str, Any]:
-        """Fix: properly handles original_file_name mapping"""
+    # def process(self, file_path: str, original_file_name: Optional[str] = None) -> Dict[str, Any]:
+    #     """Fix: properly handles original_file_name mapping"""
+    #     file_path = str(file_path)
+    #     file_name = original_file_name or Path(file_path).name
+    #     file_type = classify_file(file_name)
+
+    #     if file_type == "structured":
+    #         return self._process_structured(file_path, file_name)
+    #     elif file_type == "unstructured":
+    #         return self._process_unstructured(file_path, file_name)
+    #     else:
+    #         return {
+    #             "success":   False,
+    #             "file_type": "unsupported",
+    #             "file_name": file_name,
+    #             "message":   f"Unsupported file type: {Path(file_name).suffix}."
+    #         }
+
+    def process(
+        self,
+        file_path: str,
+        original_file_name: Optional[str] = None,
+        user_email: Optional[str] = None,
+        session_id: Optional[str] = None,
+        upload_ts: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Process file and route to structured or unstructured pipeline."""
         file_path = str(file_path)
         file_name = original_file_name or Path(file_path).name
         file_type = classify_file(file_name)
@@ -227,15 +297,22 @@ class DocumentProcessor:
         if file_type == "structured":
             return self._process_structured(file_path, file_name)
         elif file_type == "unstructured":
-            return self._process_unstructured(file_path, file_name)
+            return self._process_unstructured(
+                file_path=file_path,
+                file_name=file_name,
+                user_email=user_email,
+                session_id=session_id,
+                upload_ts=upload_ts,
+            )
         else:
             return {
-                "success":   False,
+                "success": False,
                 "file_type": "unsupported",
                 "file_name": file_name,
-                "message":   f"Unsupported file type: {Path(file_name).suffix}."
+                "message": f"Unsupported file type: {Path(file_name).suffix}.",
             }
 
+    
     def process_many(self, file_paths: List[str]) -> List[Dict[str, Any]]:
         return [self.process(p) for p in file_paths]
 
@@ -297,48 +374,112 @@ class DocumentProcessor:
                 "message":   f"Failed: {str(e)}"
             }
 
-    def _process_unstructured(self, file_path: str, file_name: str) -> Dict[str, Any]:
+    # def _process_unstructured(self, file_path: str, file_name: str) -> Dict[str, Any]:
+    #     try:
+    #         text = self._unstructured_loader.load(file_path)
+    #         if not text.strip():
+    #             return {"success": False, "file_type": "unstructured", "file_name": file_name, "message": "Empty file"}
+
+    #         chunks = self._unstructured_loader.chunk_text(
+    #             text, chunk_size=self.chunk_size, chunk_overlap=self.chunk_overlap
+    #         )
+
+    #         file_hash = hashlib.md5(file_name.encode()).hexdigest()[:8]
+    #         doc_ids   = []
+
+    #         for i, chunk in enumerate(chunks):
+    #             doc_id = f"{file_hash}_chunk_{i}"
+    #             self.tag.add_document(
+    #                 doc_id=doc_id,
+    #                 content=chunk,
+    #                 metadata={
+    #                     "file_name":  file_name,
+    #                     "chunk_index": str(i),
+    #                     "total_chunks": str(len(chunks)),
+    #                     "file_type":  Path(file_name).suffix.lower()
+    #                 }
+    #             )
+    #             doc_ids.append(doc_id)
+
+    #         return {
+    #             "success":     True,
+    #             "file_type":   "unstructured",
+    #             "file_name":   file_name,
+    #             "chunk_count": len(chunks),
+    #             "doc_ids":     doc_ids,
+    #             "char_count":  len(text),
+    #             "message":     f"Extracted chunks from '{file_name}'"
+    #         }
+    #     except Exception as e:
+    #         return {
+    #             "success":   False,
+    #             "file_type": "unstructured",
+    #             "file_name": file_name,
+    #             "message":   f"Failed: {str(e)}"
+    #         }
+
+    def _process_unstructured(
+        self,
+        file_path: str,
+        file_name: str,
+        user_email: Optional[str] = None,
+        session_id: Optional[str] = None,
+        upload_ts: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        file_id = str(uuid.uuid4())
+        ts = upload_ts or datetime.now(timezone.utc).isoformat()
+
         try:
             text = self._unstructured_loader.load(file_path)
             if not text.strip():
-                return {"success": False, "file_type": "unstructured", "file_name": file_name, "message": "Empty file"}
+                return {
+                    "success": False,
+                    "file_type": "unstructured",
+                    "file_name": file_name,
+                    "message": "Empty file",
+                }
 
             chunks = self._unstructured_loader.chunk_text(
                 text, chunk_size=self.chunk_size, chunk_overlap=self.chunk_overlap
             )
 
-            file_hash = hashlib.md5(file_name.encode()).hexdigest()[:8]
-            doc_ids   = []
-
+            doc_ids = []
             for i, chunk in enumerate(chunks):
-                doc_id = f"{file_hash}_chunk_{i}"
+                doc_id = f"{file_id}_chunk_{i}"
                 self.tag.add_document(
                     doc_id=doc_id,
                     content=chunk,
                     metadata={
-                        "file_name":  file_name,
+                        "file_id": file_id,
+                        "file_name": file_name,
                         "chunk_index": str(i),
                         "total_chunks": str(len(chunks)),
-                        "file_type":  Path(file_name).suffix.lower()
-                    }
+                        "file_type": Path(file_name).suffix.lower(),
+                        "upload_ts": ts,
+                        "user_email": user_email or "",
+                        "session_id": session_id or "",
+                    },
                 )
                 doc_ids.append(doc_id)
 
             return {
-                "success":     True,
-                "file_type":   "unstructured",
-                "file_name":   file_name,
+                "success": True,
+                "file_type": "unstructured",
+                "file_name": file_name,
+                "file_id": file_id,
+                "session_id": session_id,
+                "user_email": user_email,
                 "chunk_count": len(chunks),
-                "doc_ids":     doc_ids,
-                "char_count":  len(text),
-                "message":     f"Extracted chunks from '{file_name}'"
+                "doc_ids": doc_ids,
+                "char_count": len(text),
+                "message": f"Extracted chunks from '{file_name}'",
             }
         except Exception as e:
             return {
-                "success":   False,
+                "success": False,
                 "file_type": "unstructured",
                 "file_name": file_name,
-                "message":   f"Failed: {str(e)}"
+                "message": f"Failed: {str(e)}",
             }
 
 

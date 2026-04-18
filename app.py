@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from main_pipeline import AIQuerySystem
 from layers.layer6_storyteller import QueryResponse, LineageTrace
 from document_processor import classify_file
+from datetime import datetime, timezone
 import tempfile
 import os
 
@@ -483,7 +484,7 @@ def initialize_session_state():
         with loading_placeholder.container():
             render_loading_screen()
         try:
-            st.session_state.query_system = AIQuerySystem()
+            st.session_state.query_system = AIQuerySystem(load_sample_schemas=False)
         except Exception as e:
             st.error(f"Initialization failed: {str(e)}")
             st.session_state.query_system = None
@@ -495,6 +496,9 @@ def initialize_session_state():
     if "chat_sessions" not in st.session_state:
         load_chat_sessions()
         st.session_state.active_filters = [st.session_state.current_session_id]
+
+    if "target_source" not in st.session_state:
+        st.session_state.target_source = None
 
     st.session_state.messages = st.session_state.chat_sessions[st.session_state.current_session_id]
 
@@ -549,7 +553,15 @@ def parse_and_add_documents(uploaded_files):
             tmp_path = tmp.name
 
         try:
-            result = system.upload_file(tmp_path, original_file_name=uploaded_file.name)
+            # result = system.upload_file(tmp_path, original_file_name=uploaded_file.name)
+            
+            result = system.upload_file(
+                tmp_path,
+                original_file_name=uploaded_file.name,
+                user_email=st.session_state.get("user_email"),
+                session_id=st.session_state.get("current_session_id"),
+                upload_ts=datetime.now(timezone.utc).isoformat(),
+            )
             result["file_name"] = uploaded_file.name
 
             if result["success"]:
@@ -565,6 +577,7 @@ def parse_and_add_documents(uploaded_files):
 
     total = len(uploaded_files)
     success_count = len(results["structured"]) + len(results["unstructured"])
+    total_unstructured_chunks = sum(int(r.get("chunk_count", 0)) for r in results["unstructured"])
 
     # Update MongoDB explicitly with new documents so visibility restricts properly
     user_email = st.session_state.get("user_email")
@@ -588,6 +601,42 @@ def parse_and_add_documents(uploaded_files):
         st.toast(f"{success_count}/{total} files ingested", icon=":material/warning:")
     else:
         st.toast("All files failed to ingest", icon=":material/error:")
+
+    # Explicit ingestion confirmation so users can verify chunk indexing succeeded.
+    if results["unstructured"]:
+        per_file = []
+        for r in results["unstructured"]:
+            name = r.get("file_name", "unknown")
+            chunks = int(r.get("chunk_count", 0))
+            per_file.append(f"{name}: {chunks} chunks")
+        st.success(
+            f"RAG chunks indexed: {total_unstructured_chunks} total | " + " | ".join(per_file),
+            icon=":material/dataset:",
+        )
+
+    if results["structured"]:
+        per_table = []
+        for r in results["structured"]:
+            name = r.get("file_name", "unknown")
+            rows = int(r.get("row_count", 0))
+            per_table.append(f"{name}: {rows} rows")
+        st.info(
+            "Structured files loaded: " + " | ".join(per_table),
+            icon=":material/table_chart:",
+        )
+
+    if results["failed"]:
+        failed_summary = " | ".join(
+            f"{r.get('file_name', 'unknown')}: {r.get('message', 'Failed')}"
+            for r in results["failed"]
+        )
+        st.error(f"Ingest failures: {failed_summary}", icon=":material/error:")
+
+    # Auto-shift context to the newest successfully ingested file.
+    successful_files = [r.get("file_name") for r in (results["structured"] + results["unstructured"]) if r.get("file_name")]
+    if successful_files:
+        st.session_state.target_source = successful_files[-1]
+        st.toast(f"Context switched to latest file: {successful_files[-1]}", icon=":material/description:")
 
 def render_sidebar():
     with st.sidebar:
@@ -627,21 +676,39 @@ def render_sidebar():
         user_record = users_collection.find_one({"email": user_email}) if user_email else None
         user_docs = user_record.get("documents", []) if user_record else []
 
-        # Clean up doc names for the UI
-        clean_docs = [d.get("file_name", "") if isinstance(d, dict) else str(d) for d in user_docs]
-        clean_docs = [d for d in clean_docs if d and d != "unknown"]
+        # Clean up doc names for the UI, preserving upload/insertion order
+        raw_docs = [d.get("file_name", "") if isinstance(d, dict) else str(d) for d in user_docs]
+        clean_docs = []
+        for doc_name in raw_docs:
+            doc_name = str(doc_name).strip()
+            if doc_name and doc_name != "unknown" and doc_name not in clean_docs:
+                clean_docs.append(doc_name)
 
-        options = ["All Documents"] + sorted(list(set(clean_docs)))
+        options = ["Select a file"] + clean_docs
+        current_target = st.session_state.get("target_source")
+        if current_target in clean_docs:
+            default_index = options.index(current_target)
+        elif clean_docs:
+            # If no explicit selection exists, default to newest known file.
+            default_index = len(options) - 1
+            st.session_state.target_source = clean_docs[-1]
+        else:
+            default_index = 0
+            st.session_state.target_source = None
 
         selected_source = st.selectbox(
             "Target specific document:",
             options,
+            index=default_index,
             help="Force the AI to only read from this specific file.",
             label_visibility="collapsed"
         )
 
         # Save to session state
-        st.session_state.target_source = selected_source if selected_source != "All Documents" else None
+        st.session_state.target_source = selected_source if selected_source != "Select a file" else None
+
+        if not clean_docs:
+            st.caption("No files available. Upload a file to enable querying.")
         st.divider()
         # ---------------------------------------------
         st.header("Chat History")
@@ -677,7 +744,19 @@ def render_sidebar():
                 user_record = users_collection.find_one({"email": user_email}) if user_email else None
                 user_docs = user_record.get("documents", []) if user_record else []
 
-                filtered_docs = [d for d in uploads.get("documents", []) if d.get("file_name", d["id"]) in user_docs]
+                normalized_user_docs = set()
+                for item in user_docs:
+                    if isinstance(item, dict):
+                        name = str(item.get("file_name", "")).strip()
+                    else:
+                        name = str(item).strip()
+                    if name:
+                        normalized_user_docs.add(name)
+
+                filtered_docs = [
+                    d for d in uploads.get("documents", [])
+                    if d.get("file_name", d["id"]) in normalized_user_docs
+                ]
 
                 if uploads["schemas"] or filtered_docs:
                     with st.expander("Loaded Data Sources", icon=":material/database:"):
@@ -1184,6 +1263,9 @@ def main():
         prompt = st.chat_input("Enter a prompt here")
 
     if prompt:
+        if not st.session_state.get("target_source"):
+            st.toast("Please add a file in the sidebar and select it from Context Filter.", icon=":material/warning:")
+            return
         st.session_state.messages.append({"role": "user", "content": prompt})
         save_chat_sessions()
         st.rerun()
@@ -1201,16 +1283,33 @@ def main():
                         user_record = users_collection.find_one({"email": st.session_state.user_email}) if st.session_state.get("user_email") else None
                         authorized_docs = user_record.get("documents", []) if user_record else []
 
+                        # response = st.session_state.query_system.run_pipeline(
+                        #     user_query=user_prompt,
+                        #     context_filter=context_filter,
+                        #     authorized_docs=authorized_docs,
+                        #     target_source=st.session_state.get("target_source")
+                        # )
                         response = st.session_state.query_system.run_pipeline(
                             user_query=user_prompt,
                             context_filter=context_filter,
                             authorized_docs=authorized_docs,
-                            target_source=st.session_state.get("target_source")
+                            target_source=st.session_state.get("target_source"),
+                            user_email=st.session_state.get("user_email"),
                         )
+                        docs_count = len(getattr(response, "raw_docs", []) or [])
+                        selected_target = st.session_state.get("target_source") or "All Documents"
+                        st.caption(
+                            f"Route: {response.lineage.route.upper()} | Target: {selected_target} | Retrieved Chunks: {docs_count}"
+                            )
                         st.write(response.answer)
                         if response.lineage.cache_hit:
                             st.toast("Answered from Cache", icon=":material/bolt:")
                         display_lineage(response.lineage)
+                        if response.lineage.route in ["rag", "both"] and not (getattr(response, "raw_docs", None) or []):
+                            st.warning(
+                            "No document chunks matched current filters. Try 'All Documents' or adjust session filters.",
+                            icon=":material/warning:",
+                            )
 
                         st.session_state.messages.append({
                             "role": "assistant",
