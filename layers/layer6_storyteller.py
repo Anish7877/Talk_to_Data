@@ -339,6 +339,7 @@ class QueryResponse:
     lineage: LineageTrace
     raw_results: Optional[List[Dict[str, Any]]] = None
     raw_docs: Optional[List[Dict[str, Any]]] = None
+    execution_error: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary."""
@@ -346,7 +347,8 @@ class QueryResponse:
             "answer": self.answer,
             "lineage": self.lineage.to_dict(),
             "raw_results": self.raw_results,
-            "raw_docs": self.raw_docs
+            "raw_docs": self.raw_docs,
+            "execution_error": self.execution_error,
         }
 
     def to_json(self) -> str:

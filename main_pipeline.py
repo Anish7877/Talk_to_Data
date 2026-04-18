@@ -1139,7 +1139,10 @@ class AIQuerySystem:
                     context_filter=context_filter,
                     authorized_docs=authorized_docs,
                 )
-                cached = self.cache.get(pre_route_cache_key)
+                if hasattr(self.cache, "get_exact"):
+                    cached = self.cache.get_exact(pre_route_cache_key)
+                else:
+                    cached = self.cache.get(pre_route_cache_key)
                 if cached and cached.get("answer"):
                     cached_meta = cached.get("metadata", {})
                     self.logger.info(f"[CACHE HIT] similarity={cached.get('similarity', 0):.3f}")
@@ -1155,6 +1158,7 @@ class AIQuerySystem:
                         lineage=lineage,
                         raw_results=cached_meta.get("results"),
                         raw_docs=cached_meta.get("docs"),
+                        execution_error=cached_meta.get("execution_error"),
                     )
             except Exception as e:
                 self.logger.warning(f"Cache lookup failed: {e}")
@@ -1225,6 +1229,7 @@ class AIQuerySystem:
 
         # Steps 4 & 5: Generate SQL and execute (Self-Healing Loop)
         sql_results, sql_query, tables_used = None, None, []
+        execution_error = None
 
         if route in ["sql", "both"] and schema_context:
             if not self.executor:
@@ -1253,12 +1258,15 @@ class AIQuerySystem:
                             db_result = self.executor.execute(sql_query)
                             if db_result.success:
                                 sql_results = db_result.rows
+                                execution_error = None
                                 self.logger.info(f"[EXECUTOR] Got {len(sql_results)} rows in {db_result.execution_time_ms:.1f}ms")
                                 break # Success!
                             else:
+                                execution_error = db_result.error
                                 self.logger.warning(f"[EXECUTOR] DB error: {db_result.error}. Retrying...")
                                 feedback_history += f"- Query: {sql_query}\n- Error: {db_result.error}\n"
                         except Exception as e:
+                            execution_error = str(e)
                             self.logger.error(f"[EXECUTOR] Exception: {e}")
                             break
                     else:
@@ -1326,21 +1334,36 @@ class AIQuerySystem:
                     "route": route,
                     "results": sql_results,
                     "docs": docs,
+                    "execution_error": execution_error,
                     "docs_count": len(docs),
                 }
-                self.cache.set(
-                    route_cache_key,
-                    answer,
-                    metadata=cache_metadata,
-                )
-                self.cache.set(pre_route_cache_key, answer, metadata=cache_metadata)
+                if hasattr(self.cache, "set_exact"):
+                    self.cache.set_exact(
+                        route_cache_key,
+                        answer,
+                        metadata=cache_metadata,
+                    )
+                    self.cache.set_exact(pre_route_cache_key, answer, metadata=cache_metadata)
+                else:
+                    self.cache.set(
+                        route_cache_key,
+                        answer,
+                        metadata=cache_metadata,
+                    )
+                    self.cache.set(pre_route_cache_key, answer, metadata=cache_metadata)
                 self.logger.info("[CACHE] Stored isolated cache entry.")
 
             except Exception as e:
                 self.logger.warning(f"Cache write failed: {e}")
 
         self.storyteller.log_lineage(lineage)
-        return QueryResponse(answer=answer, lineage=lineage, raw_results=sql_results, raw_docs=docs)
+        return QueryResponse(
+            answer=answer,
+            lineage=lineage,
+            raw_results=sql_results,
+            raw_docs=docs,
+            execution_error=execution_error,
+        )
 
     def clear_cache(self) -> int:
         """Clear all cache entries. Useful after fixing bugs."""

@@ -390,7 +390,7 @@ class TestRAGIsolation:
         system = self._make_system_instance()
         system.logger = MagicMock()
         system.cache = MagicMock()
-        system.cache.get.return_value = {
+        system.cache.get_exact.return_value = {
             "answer": "Cached RAG answer",
             "similarity": 0.99,
             "metadata": {"route": "rag", "results": None, "docs": [{"id": "d1"}]},
@@ -411,7 +411,7 @@ class TestRAGIsolation:
         system.logger = MagicMock()
         system.config = {"tag": {"top_k_schemas": 5}}
         system.cache = MagicMock()
-        system.cache.get.return_value = None
+        system.cache.get_exact.return_value = None
         system.router = MagicMock()
         system.router.route.return_value = {"route": "rag", "schemas": []}
         system.tag = MagicMock()
@@ -423,9 +423,31 @@ class TestRAGIsolation:
         response = AIQuerySystem.run_pipeline(system, user_query="same question")
 
         assert response.answer == "Answer from docs"
-        assert system.cache.set.call_count == 2
-        written_keys = [call.args[0] for call in system.cache.set.call_args_list]
+        assert system.cache.set_exact.call_count == 2
+        written_keys = [call.args[0] for call in system.cache.set_exact.call_args_list]
         assert len(set(written_keys)) == 2
+
+    def test_pipeline_uses_exact_cache_methods_when_available(self):
+        from main_pipeline import AIQuerySystem
+
+        system = self._make_system_instance()
+        system.logger = MagicMock()
+        system.config = {"tag": {"top_k_schemas": 5}}
+        system.cache = MagicMock()
+        system.cache.get_exact.return_value = None
+        system.router = MagicMock()
+        system.router.route.return_value = {"route": "rag", "schemas": []}
+        system.tag = MagicMock()
+        system.tag.retrieve_documents.return_value = [{"id": "d1", "content": "doc text", "metadata": {}}]
+        system.storyteller = MagicMock()
+        system.storyteller.tell.return_value = "Answer from docs"
+        system.storyteller.create_lineage.return_value = MagicMock()
+
+        response = AIQuerySystem.run_pipeline(system, user_query="same question")
+
+        assert response.answer == "Answer from docs"
+        assert system.cache.get_exact.call_count == 1
+        assert system.cache.set_exact.call_count == 2
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
