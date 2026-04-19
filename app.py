@@ -264,23 +264,73 @@ def chunk_text(text: str, chunk_size: int = 300) -> list:
     return [' '.join(words[i:i+chunk_size]) for i in range(0, len(words), chunk_size)]
 
 
+# def render_loading_screen():
+#     import base64
+#     from pathlib import Path
+    
+    
+#     video_path = Path(__file__).parent / "loading_animation.mp4" 
+    
+#     try:
+        
+#         with open(video_path, "rb") as video_file:
+#             video_bytes = video_file.read()
+#             video_base64 = base64.b64encode(video_bytes).decode("utf-8")
+            
+        
+#         loading_html = f"""
+# <div style="position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 999999; background: #0f172a; display: flex; flex-direction: column; align-items: center; justify-content: center; font-family: 'Inter', sans-serif;">
+# <video autoplay loop muted playsinline style="position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; object-fit: cover; z-index: 0; opacity: 0.75; filter: contrast(1.15) brightness(0.85) saturate(1.1);">
+# <source src="data:video/mp4;base64,{video_base64}" type="video/mp4">
+# </video>
+# <div style="position: relative; z-index: 1; display: flex; flex-direction: column; align-items: center; padding: 4rem; background: rgba(255, 255, 255, 0.65); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); border-radius: 32px; border: 1px solid rgba(255, 255, 255, 0.8); box-shadow: 0 25px 50px rgba(15, 23, 42, 0.05); animation: fadeInUp 0.6s ease-out;">
+# <h2 style="font-size: 2.2rem; font-weight: 800; letter-spacing: -0.5px; margin-bottom: 0.5rem; line-height: 1.2; background: linear-gradient(270deg, #0f172a, #3b82f6, #0f172a); background-size: 200% 200%; -webkit-background-clip: text; -webkit-text-fill-color: transparent; animation: gradientFlow 4s ease infinite;">Nexus Intelligence</h2>
+# <p style="color: #475569; font-size: 1rem; font-weight: 500; margin-bottom: 2rem;">Initializing AI Query Engine</p>
+# <div style="width: 260px; height: 6px; background: rgba(148, 163, 184, 0.3); border-radius: 8px; overflow: hidden; box-shadow: inset 0 1px 3px rgba(0,0,0,0.1);">
+# <div style="width: 100%; height: 100%; background: linear-gradient(90deg, transparent, #475569, transparent); background-size: 200% 100%; animation: shimmer 1.5s infinite;"></div>
+# </div>
+# <p style="color: #64748b; font-size: 0.8rem; margin-top: 1.5rem; letter-spacing: 0.5px; font-weight: 500;">Connecting to databases, loading models & cache layers...</p>
+# </div>
+# </div>
+# <style>
+# @keyframes shimmer {{ 0% {{ background-position: -200% 0; }} 100% {{ background-position: 200% 0; }} }}
+# @keyframes gradientFlow {{ 0% {{ background-position: 0% 50%; }} 50% {{ background-position: 100% 50%; }} 100% {{ background-position: 0% 50%; }} }}
+# @keyframes fadeInUp {{ from {{ opacity: 0; transform: translateY(20px); }} to {{ opacity: 1; transform: translateY(0); }} }}
+# </style>
+# """
+#         st.markdown(loading_html, unsafe_allow_html=True)
+        
+#     except FileNotFoundError:
+        
+#         fallback_html = """
+# <div style="position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 999999; background: #f8fafc; display: flex; flex-direction: column; align-items: center; justify-content: center; font-family: 'Inter', sans-serif;">
+# <div style="width: 48px; height: 48px; border-radius: 50%; border: 3px solid #e2e8f0; border-top-color: #475569; animation: spin 0.8s linear infinite; margin-bottom: 2rem;"></div>
+# <h2 style="font-size: 1.5rem; font-weight: 600; color: #1e293b; margin-bottom: 0.5rem;">Nexus Intelligence</h2>
+# <p style="color: #64748b; font-size: 0.92rem; margin-bottom: 1.5rem;">Initializing AI Query Engine</p>
+# </div>
+# <style>
+# @keyframes spin { to { transform: rotate(360deg); } }
+# </style>
+# """
+#         st.markdown(fallback_html, unsafe_allow_html=True)
+#         st.error("loading_animation.mp4 not found. Please place the generated video in the root directory.", icon="⚠️")
 def render_loading_screen():
     import base64
     from pathlib import Path
     
-    
+    # Target the generated video file in your directory
     video_path = Path(__file__).parent / "loading_animation.mp4" 
     
     try:
-        
+        # Read and encode the video file to Base64
         with open(video_path, "rb") as video_file:
             video_bytes = video_file.read()
             video_base64 = base64.b64encode(video_bytes).decode("utf-8")
             
-        
+        # FIXED WIDTH ISSUE: Using left:0, right:0, top:0, bottom:0 and 100% instead of 100vw/100vh
         loading_html = f"""
-<div style="position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 999999; background: #0f172a; display: flex; flex-direction: column; align-items: center; justify-content: center; font-family: 'Inter', sans-serif;">
-<video autoplay loop muted playsinline style="position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; object-fit: cover; z-index: 0; opacity: 0.75; filter: contrast(1.15) brightness(0.85) saturate(1.1);">
+<div style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; width: 100%; height: 100%; z-index: 999999; background: #0f172a; display: flex; flex-direction: column; align-items: center; justify-content: center; font-family: 'Inter', sans-serif;">
+<video autoplay loop muted playsinline style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; z-index: 0; opacity: 0.75; filter: contrast(1.15) brightness(0.85) saturate(1.1);">
 <source src="data:video/mp4;base64,{video_base64}" type="video/mp4">
 </video>
 <div style="position: relative; z-index: 1; display: flex; flex-direction: column; align-items: center; padding: 4rem; background: rgba(255, 255, 255, 0.65); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); border-radius: 32px; border: 1px solid rgba(255, 255, 255, 0.8); box-shadow: 0 25px 50px rgba(15, 23, 42, 0.05); animation: fadeInUp 0.6s ease-out;">
@@ -301,16 +351,14 @@ def render_loading_screen():
         st.markdown(loading_html, unsafe_allow_html=True)
         
     except FileNotFoundError:
-        
+        # Static Fallback if video is missing
         fallback_html = """
-<div style="position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 999999; background: #f8fafc; display: flex; flex-direction: column; align-items: center; justify-content: center; font-family: 'Inter', sans-serif;">
+<div style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; width: 100%; height: 100%; z-index: 999999; background: #f8fafc; display: flex; flex-direction: column; align-items: center; justify-content: center; font-family: 'Inter', sans-serif;">
 <div style="width: 48px; height: 48px; border-radius: 50%; border: 3px solid #e2e8f0; border-top-color: #475569; animation: spin 0.8s linear infinite; margin-bottom: 2rem;"></div>
 <h2 style="font-size: 1.5rem; font-weight: 600; color: #1e293b; margin-bottom: 0.5rem;">Nexus Intelligence</h2>
 <p style="color: #64748b; font-size: 0.92rem; margin-bottom: 1.5rem;">Initializing AI Query Engine</p>
 </div>
-<style>
-@keyframes spin { to { transform: rotate(360deg); } }
-</style>
+<style>@keyframes spin { to { transform: rotate(360deg); } }</style>
 """
         st.markdown(fallback_html, unsafe_allow_html=True)
         st.error("loading_animation.mp4 not found. Please place the generated video in the root directory.", icon="⚠️")
